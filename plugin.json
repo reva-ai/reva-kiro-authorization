@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "reva-governance",
+  "version": "1.0.0",
+  "description": "Reva Cedar-based authorization gateway — every Kiro tool call and prompt is checked against the Reva PDP before it runs, the same governance model Reva enforces at the API gateway layer brought down to the coding-agent layer.",
+  "author": {
+    "name": "Reva AI"
+  },
+  "keywords": [
+    "governance",
+    "authorization",
+    "cedar",
+    "policy-as-code",
+    "reva",
+    "pdp",
+    "access-control",
+    "audit"
+  ]
+}

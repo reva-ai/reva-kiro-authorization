@@ -1,0 +1,22 @@
+{
+  "name": "reva-governance-kiro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reva Cedar-based authorization gateway for every Kiro tool call and prompt",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postinstall": "npm run build",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "mock-pdp": "node scripts/mock-pdp-server.mjs",
+    "install-hooks": "node scripts/install-hooks.mjs",
+    "uninstall-hooks": "node scripts/install-hooks.mjs --uninstall",
+    "doctor": "node scripts/reva-doctor.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4"
+  }
+}
