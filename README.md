@@ -170,4 +170,4 @@ uninstall are in [docs/INSTALL.md](docs/INSTALL.md).
 
 ## License
 
-Not specified.
+[Apache-2.0](LICENSE). See [NOTICE](NOTICE).
