@@ -90,13 +90,7 @@ export interface ActionContextExtras {
   // session record (src/kiroSession.ts). Kiro does not put the model on the
   // wire, so this is frequently absent — and absent means the field is
   // omitted entirely rather than sent as a placeholder.
-  //
-  // Only reaches the request when RevaConfig.modelContext is on, because
-  // Cedar context is closed per action: sending `model` before the schema
-  // declares it is a schema violation that rejects the whole request, not a
-  // harmless extra field.
   model?: string;
-  modelContext?: boolean;
   // This machine's id — see the interface-level comment above.
   machineId?: string;
 }
@@ -128,7 +122,7 @@ function activeSessionFields(extras: ActionContextExtras): Record<string, any> {
     agentType: AGENT_TYPE,
     machineId: extras.machineId ?? '',
     os: osAttribute(),
-    ...(extras.modelContext && extras.model ? { model: extras.model } : {}),
+    ...(extras.model ? { model: extras.model } : {}),
   };
 }
 
@@ -161,13 +155,12 @@ export function buildInvokeAgentContext(
   activeSessionCount = 0,
   currentSession?: ActiveSession,
   model?: string,
-  modelContext = false,
   machineId?: string,
 ): Record<string, any> {
   return {
     timestamp: Date.now(),
     hops: [],
-    ...activeSessionFields({ activeSessionCount, currentSession, model, modelContext, machineId }),
+    ...activeSessionFields({ activeSessionCount, currentSession, model, machineId }),
   };
 }
 

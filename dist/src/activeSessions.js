@@ -33,10 +33,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isProcessRunning = isProcessRunning;
 exports.markSessionActive = markSessionActive;
 exports.getActiveSessions = getActiveSessions;
 exports.getActiveSessionCount = getActiveSessionCount;
 exports.getSessionEntry = getSessionEntry;
+exports.touchSession = touchSession;
 exports.markSessionInactive = markSessionInactive;
 // Manages tracking of active sessions on this machine.
 const fs = __importStar(require("node:fs"));
@@ -79,21 +81,39 @@ function saveState(agentId, state, pluginDataDir) {
         // best effort
     }
 }
+// Signal 0 tests for existence without touching the process. EPERM means it
+// exists but belongs to someone else, so it still counts as running. A reused
+// id can only keep a closed session counted until the TTL — never drop an
+// open one.
+function isProcessRunning(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (err) {
+        return err?.code === 'EPERM';
+    }
+}
 function pruneInactive(state, pluginDataDir) {
     const now = Date.now();
     const sessions = {};
     for (const [sessionId, entry] of Object.entries(state.sessions)) {
+        if (entry.pid && !isProcessRunning(entry.pid))
+            continue;
         if (now - entry.lastSeen < ACTIVE_TTL_MS && !(0, pdpCircuitBreaker_1.isCircuitOpen)(sessionId, pluginDataDir).open) {
             sessions[sessionId] = entry;
         }
     }
     return { sessions };
 }
-function markSessionActive(agentId, sessionId, entrypoint, pluginDataDir) {
+function markSessionActive(agentId, sessionId, entrypoint, pluginDataDir, pid) {
     if (!sessionId || (0, pdpCircuitBreaker_1.isCircuitOpen)(sessionId, pluginDataDir).open)
         return undefined;
     const state = pruneInactive(loadState(agentId, pluginDataDir), pluginDataDir);
-    const entry = { entrypoint, lastSeen: Date.now() };
+    // Only the hook that looked the process up passes a pid; every later hook
+    // of the session keeps the one already stored.
+    const keptPid = pid ?? state.sessions[sessionId]?.pid;
+    const entry = { entrypoint, lastSeen: Date.now(), ...(keptPid ? { pid: keptPid } : {}) };
     state.sessions[sessionId] = entry;
     saveState(agentId, state, pluginDataDir);
     return { sessionId, ...entry };
@@ -108,8 +128,26 @@ function getActiveSessionCount(agentId, pluginDataDir) {
 function getSessionEntry(agentId, sessionId, pluginDataDir) {
     return getActiveSessions(agentId, pluginDataDir).find((s) => s.sessionId === sessionId);
 }
-// Explicit removal from Stop (sessionEnd.ts). TTL above stays as the fallback
-// when Stop never fires (killed process, closed terminal).
+// End of a reply (Stop, see sessionEnd.ts): the session is still open, now
+// idle at its prompt, so only its lastSeen moves. Never adds a session — the
+// prompt and tool hooks register it with its entrypoint — and never removes
+// one: closing is left to the TTL above.
+function touchSession(agentId, sessionId, pluginDataDir) {
+    if (!sessionId)
+        return false;
+    const state = pruneInactive(loadState(agentId, pluginDataDir), pluginDataDir);
+    const entry = state.sessions[sessionId];
+    if (!entry)
+        return false;
+    entry.lastSeen = Date.now();
+    saveState(agentId, state, pluginDataDir);
+    return true;
+}
+// Explicit removal on SessionEnd (sessionEnd.ts) — the session is closing.
+// Never on Stop: Kiro fires Stop at the end of every reply, and removing the
+// session there dropped open, idle sessions from activeSessionCount (a
+// ">= 3 sessions" policy never saw more than 2). The TTL above covers a
+// session that is killed without running any hook.
 function markSessionInactive(agentId, sessionId, pluginDataDir) {
     if (!sessionId)
         return;

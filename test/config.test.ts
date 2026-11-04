@@ -73,28 +73,6 @@ test('never invents an agent id: resolves an account-scoped one, or fails loudly
   assert.ok(!cfg.agentId.includes('@'));
 });
 
-// --- model context ---------------------------------------------------------
-//
-// On by default. The PDP drops an undeclared context field from the evaluated
-// context rather than rejecting the request (the action is still allowed), so
-// an off-by-default gate would suppress the field for no benefit. The off
-// switch stays for a deployment that does validate strictly.
-
-test('model context is on by default', () => {
-  const cfg = loadConfig({ REVA_AUTH_TOKEN: 'auth-token', REVA_AGENT_ID: 'agent-1' });
-  assert.equal(cfg.modelContext, true);
-});
-
-test('REVA_MODEL_CONTEXT=0 / false turns it off; anything else leaves it on', () => {
-  const base = { REVA_AUTH_TOKEN: 'auth-token', REVA_AGENT_ID: 'agent-1' };
-  assert.equal(loadConfig({ ...base, REVA_MODEL_CONTEXT: '0' }).modelContext, false);
-  assert.equal(loadConfig({ ...base, REVA_MODEL_CONTEXT: 'false' }).modelContext, false);
-  assert.equal(loadConfig({ ...base, REVA_MODEL_CONTEXT: 'FALSE' }).modelContext, false);
-  assert.equal(loadConfig({ ...base, REVA_MODEL_CONTEXT: ' 0 ' }).modelContext, false);
-  assert.equal(loadConfig({ ...base, REVA_MODEL_CONTEXT: '1' }).modelContext, true);
-  assert.equal(loadConfig({ ...base, REVA_MODEL_CONTEXT: '' }).modelContext, true);
-});
-
 // --- policy store id -------------------------------------------------------
 //
 // Optional by design. No known Reva deployment needs one on the wire — the

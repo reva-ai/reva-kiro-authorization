@@ -45,8 +45,8 @@ const doCli = !onlyIde;
 const agentName = valueOf('--agent') || 'reva-governance';
 const projectDir = valueOf('--project');
 
-// entry script -> [IDE trigger, CLI trigger, matcher (tool-name triggers
-// only), timeout seconds]
+// entry script -> [IDE trigger, CLI trigger (null: not installed for
+// kiro-cli 2.x), matcher (tool-name triggers only), timeout seconds]
 const HOOKS = [
   // 45s, NOT the 10s this used to carry. A cold session-start resolves the
   // Kiro account and lists MCP servers, both of which shell out to kiro-cli
@@ -59,9 +59,19 @@ const HOOKS = [
   ['authorizePrompt.js', 'UserPromptSubmit', 'userPromptSubmit', null, 30],
   ['authorize.js',       'PreToolUse',       'preToolUse',       '*',  45],
   ['authorizePost.js',   'PostToolUse',      'postToolUse',      '*',  45],
-  // IDE `Stop` / CLI `stop` — end-of-session cleanup. Local only.
-  ['sessionEnd.js',      'Stop',             'stop',             null, 10],
+  // `SessionEnd` — the session is closing (Kiro desktop app and kiro-cli V3,
+  // which share these files). Drops it from the local active-session count.
+  // Not `Stop`: Kiro fires that after every reply, so an open session idling
+  // at its prompt was dropped from the count. 5s because Kiro gives
+  // SessionEnd hooks 5s in total. kiro-cli 2.x has no such event, so it gets
+  // none — its sessions leave the count through the 10-minute idle TTL.
+  ['sessionEnd.js',      'SessionEnd',       null,               null, 5],
 ];
+
+// Registrations earlier versions wrote, removed on every install and
+// uninstall so an upgrade never leaves them firing.
+const LEGACY_IDE_FILES = ['reva-stop.json'];
+const LEGACY_CLI_TRIGGERS = ['stop'];
 
 function command(entry) {
   return `node "${path.join(DIST, entry).split(path.sep).join('/')}"`;
@@ -99,8 +109,12 @@ function installIde() {
     ['reva-prompt-submit.json',  'reva-governance-prompt-submit',  1],
     ['reva-pre-tool-use.json',   'reva-governance-pre-tool-use',   2],
     ['reva-post-tool-use.json',  'reva-governance-post-tool-use',  3],
-    ['reva-stop.json',           'reva-governance-stop',           4],
+    ['reva-session-end.json',    'reva-governance-session-end',    4],
   ];
+  for (const file of LEGACY_IDE_FILES) {
+    const p = path.join(dir, file);
+    if (fs.existsSync(p)) { fs.unlinkSync(p); console.log(`removed ${p} (replaced)`); }
+  }
   if (uninstall) {
     for (const [file] of files) {
       const p = path.join(dir, file);
@@ -178,7 +192,13 @@ function installCli() {
   const rootPrefix = ROOT.split(path.sep).join('/');
   const isReva = (h) => typeof h?.command === 'string' && h.command.includes(rootPrefix);
   cfg.hooks = cfg.hooks || {};
+  for (const trigger of LEGACY_CLI_TRIGGERS) {
+    const kept = (cfg.hooks[trigger] || []).filter((h) => !isReva(h));
+    if (kept.length) cfg.hooks[trigger] = kept;
+    else delete cfg.hooks[trigger];
+  }
   for (const [entry, , cliTrigger, matcher, timeout] of HOOKS) {
+    if (!cliTrigger) continue;
     const existing = (cfg.hooks[cliTrigger] || []).filter((h) => !isReva(h));
     if (uninstall) {
       if (existing.length) cfg.hooks[cliTrigger] = existing;

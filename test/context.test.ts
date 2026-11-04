@@ -254,5 +254,12 @@ test('machineId is sent on every action and on invokeAgent, empty rather than in
   const mapping: CedarActionMapping = { actionName: 'read', resourceType: 'File', resourceId: 'r/a' };
   assert.equal(buildActionContext(mapping, { machineId: 'machine-1' }).machineId, 'machine-1');
   assert.equal(buildActionContext(mapping).machineId, '');
-  assert.equal(buildInvokeAgentContext(0, undefined, undefined, false, 'machine-1').machineId, 'machine-1');
+  assert.equal(buildInvokeAgentContext(0, undefined, undefined, 'machine-1').machineId, 'machine-1');
+});
+
+test('model is always sent when resolved, and left out when Kiro gave none — there is no switch', () => {
+  assert.equal(buildInvokeAgentContext(0, undefined, 'claude-sonnet-4.5').model, 'claude-sonnet-4.5');
+  assert.equal(buildActionContext({ actionName: 'read' } as any, { model: 'auto' }).model, 'auto');
+  assert.equal('model' in buildInvokeAgentContext(), false);
+  assert.equal('model' in buildActionContext({ actionName: 'read' } as any, {}), false);
 });

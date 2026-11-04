@@ -113,12 +113,21 @@ test('blocksAt reports enforcement honestly per host and event', () => {
 
 // --- session entrypoint ------------------------------------------------------
 
-test('session entrypoint: kiro-cli -> cli, Kiro IDE -> ide-kiro', () => {
+test('session entrypoint: kiro-cli -> cli, Kiro IDE -> Kiro Desktop', () => {
   assert.equal(sessionEntrypoint('kiro-cli', {}), 'cli');
-  assert.equal(sessionEntrypoint('kiro-ide', {}), 'ide-kiro');
+  // The Kiro IDE is Kiro's desktop app, so Reva maps it to the Desktop App
+  // surface.
+  assert.equal(sessionEntrypoint('kiro-ide', {}), 'Kiro Desktop');
 });
 
 test('REVA_SESSION_ENTRYPOINT names the surface explicitly when set', () => {
   assert.equal(sessionEntrypoint('kiro-cli', { REVA_SESSION_ENTRYPOINT: 'ci-runner' }), 'ci-runner');
-  assert.equal(sessionEntrypoint('kiro-ide', { REVA_SESSION_ENTRYPOINT: '   ' }), 'ide-kiro');
+  assert.equal(sessionEntrypoint('kiro-ide', { REVA_SESSION_ENTRYPOINT: '   ' }), 'Kiro Desktop');
+});
+
+test('SessionEnd (Kiro desktop app, kiro-cli V3) is recognized as its own event', () => {
+  const payload = { session_id: 'sess_1', hook_event_name: 'SessionEnd', cwd: 'C:\repo', reason: 'other' };
+  assert.deepEqual(detectHost(payload, 'SessionEnd', {}), { host: 'kiro-ide', event: 'SessionEnd' });
+  // A Stop from an install made before SessionEnd was registered stays a Stop.
+  assert.deepEqual(detectHost({ ...payload, hook_event_name: 'Stop' }, 'SessionEnd', {}), { host: 'kiro-ide', event: 'Stop' });
 });

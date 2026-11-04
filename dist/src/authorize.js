@@ -52,6 +52,7 @@ const stdin_1 = require("./stdin");
 const spawnCounter_1 = require("./spawnCounter");
 const trace_1 = require("./trace");
 const host_1 = require("./host");
+const surface_1 = require("./surface");
 const turnCache_1 = require("./turnCache");
 // PreToolUse / preToolUse — the one gate that can actually stop an action
 // before it runs. All host-specific I/O (which trigger name arrived, where
@@ -88,7 +89,8 @@ async function main() {
     // configured id regardless of subagent status, so this still refreshes
     // the right entry (the registry itself stays local-machine-scoped
     // regardless of what agentId now represents — see deviceId.ts).
-    const currentSession = (0, activeSessions_1.markSessionActive)(cfg.agentId, input.sessionId, (0, host_1.sessionEntrypoint)(input.host), pluginDataDir);
+    const surface = (0, surface_1.resolveSessionSurface)({ host: input.host, agentId: cfg.agentId, sessionId: input.sessionId, pluginDataDir });
+    const currentSession = (0, activeSessions_1.markSessionActive)(cfg.agentId, input.sessionId, surface.entrypoint, pluginDataDir, surface.pid);
     const activeSessionCount = (0, activeSessions_1.getActiveSessionCount)(cfg.agentId, pluginDataDir);
     const agentCtx = (0, identity_1.resolveAgentContext)(cfg.agentId, input);
     // Both hosts always send tool_name on this trigger; the fallback only
@@ -143,12 +145,15 @@ async function main() {
     // mcpIngestionTrigger.ts). Contained in its own try/catch on purpose:
     // main()'s catch fails CLOSED, so a throw from this best-effort
     // bookkeeping would deny a legitimate tool call.
+    // Every distinct server, since a tool_load can name several.
     try {
-        const mcpServer = toolMapping.mappings
+        const mcpServers = new Set(toolMapping.mappings
             .flatMap((m) => m.resourceParents || [])
-            .find((parent) => parent.type === 'MCPServer');
-        if (mcpServer)
-            (0, mcpIngestionTrigger_1.triggerMcpIngestionForInvokedServer)(cfg, userEmail, mcpServer.id, input.cwd, pluginDataDir);
+            .filter((parent) => parent.type === 'MCPServer')
+            .map((parent) => parent.id));
+        for (const server of mcpServers) {
+            (0, mcpIngestionTrigger_1.triggerMcpIngestionForInvokedServer)(cfg, userEmail, server, input.cwd, pluginDataDir);
+        }
     }
     catch (err) {
         (0, debug_1.debugLog)(`authorize: ingest-on-invoke skipped — ${err?.message || String(err)}`);
@@ -193,7 +198,6 @@ async function main() {
                 activeSessionCount,
                 currentSession,
                 model,
-                modelContext: cfg.modelContext,
                 machineId,
             }),
             transmission,

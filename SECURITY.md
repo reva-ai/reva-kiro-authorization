@@ -43,7 +43,7 @@ Alongside the content, each request carries identity and resource metadata:
 | principal | The developer's **email address** | `kiro-cli whoami`; falls back to the **OS username** if no account is signed in |
 | subject / agent id | The Kiro account's **user UUID** | `telemetryUserId` in kiro-cli's local database (`data.sqlite3`), or `REVA_AGENT_ID` when set. Only that one value is read — the database's token tables are never opened. |
 | resource id | The file, directory or repository acted on | See "Paths" below |
-| session | Session id, turn number, a count of concurrent sessions, and the entry point (`cli` or `ide-kiro`) | local |
+| session | Session id, turn number, a count of concurrent sessions, and the entry point (`cli` or `Kiro Desktop`) | local |
 | context | Operating system (`Windows` / `macOS` / `Linux`), this machine's hardware id, the model in use | local |
 | correlation ids | A per-chat **thread id** — the Kiro session id, sent as `X-Reva-Thread-Id` — plus a per-prompt trace id and a per-operation span id in the W3C `traceparent` header | local |
 

@@ -231,7 +231,9 @@ if (token) {
 console.log('\nRegistration');
 const ideDir = path.join(os.homedir(), '.kiro', 'hooks');
 const ideFiles = fs.existsSync(ideDir) ? fs.readdirSync(ideDir).filter((f) => f.startsWith('reva-') && f.endsWith('.json')) : [];
-if (ideFiles.length === 5) ok(`Kiro IDE: 5 hooks in ${ideDir}`);
+// reva-stop.json is what earlier versions wrote in place of reva-session-end.json.
+if (ideFiles.includes('reva-stop.json')) warn('Kiro IDE: reva-stop.json is from an older version — run: npm run install-hooks');
+if (ideFiles.length === 5 && ideFiles.includes('reva-session-end.json')) ok(`Kiro IDE: 5 hooks in ${ideDir}`);
 else if (ideFiles.length) warn(`Kiro IDE: only ${ideFiles.length}/5 hooks in ${ideDir}`);
 else warn(`Kiro IDE: no hooks in ${ideDir} — run: npm run install-hooks`);
 

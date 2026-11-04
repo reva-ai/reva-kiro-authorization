@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { readKiroMcpServers } from './mcpConfig';
 import { extractShellTargets, hasWildcard, literalDirOf, resolveAgainst, shellDialectFor, ShellDialect } from './shellTargets';
 import { CedarActionMapping, CedarEntityRef, ToolMapping } from './types';
 
@@ -376,14 +377,128 @@ function mcpPathArguments(toolInput: Record<string, any>): string[] {
   return values;
 }
 
+// --- MCP tool names ------------------------------------------------------------
+//
+// Three namings reach the hooks:
+//
+//   "@server/tool"         kiro-cli 2.x (kiro-cli tool specs, live captures)
+//   "mcp__server__tool"    also accepted
+//   "mcp_<server>_<tool>"  the Kiro desktop app and kiro-cli V3, which share
+//                          one agent engine. The MCP tool's id there is
+//                          "mcp_" + server + "_" + tool, lowercased, spaces
+//                          and dashes as "_", other punctuation dropped
+//                          (Kiro's own MCP tool id format).
+//
+// The third form loses the boundary between server and tool, since both may
+// contain "_". It is recovered by matching the configured server names
+// (mcp.json), cleaned the same way, longest first. A server no mcp.json
+// declares falls back to the first segment — best effort, and labelled so.
+// Before this, the second and third forms went through as an unrecognized
+// tool with no MCPServer parent: the tool was evaluated, the server never.
+
+export interface McpToolRef {
+  server: string;
+  tool: string;
+}
+
+// Loads every tool of a server: tool_load with "server::*" or, above the cap,
+// one resource per server. Never "*" in a resource id — no policy can match
+// a literal glob.
+const MCP_ALL_TOOLS = '';
+
+export function kiroMcpIdPart(name: string): string {
+  return name.replace(/[\s-]/g, '_').replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+}
+
+export function parseMcpToolName(toolName: string, serverNames: () => string[] = () => []): McpToolRef | undefined {
+  const at = toolName.match(/^@([^/]+)\/(.+)$/);
+  if (at) return { server: at[1], tool: at[2] };
+
+  if (toolName.startsWith('mcp__')) {
+    const parts = toolName.split('__');
+    return { server: parts[1] || 'unknown-server', tool: parts.slice(2).join('__') || toolName };
+  }
+
+  if (toolName.startsWith('mcp_')) {
+    const rest = toolName.slice('mcp_'.length);
+    let best: { name: string; part: string } | undefined;
+    for (const name of serverNames()) {
+      const part = kiroMcpIdPart(name);
+      if (!part || !rest.startsWith(`${part}_`) || rest.length === part.length + 1) continue;
+      if (!best || part.length > best.part.length) best = { name, part };
+    }
+    if (best) return { server: best.name, tool: rest.slice(best.part.length + 1) };
+    const cut = rest.indexOf('_');
+    if (cut > 0 && cut < rest.length - 1) return { server: rest.slice(0, cut), tool: rest.slice(cut + 1) };
+  }
+  return undefined;
+}
+
+// A deferred-tool id from tool_load / tool_call: "server::tool", optionally
+// prefixed "tool::" (the resource-v1 format) or namespaced under a power
+// ("<power>::tool::server::tool"). Built-in tools, skills, steering and power
+// overviews are not MCP tools and return undefined.
+export function parseMcpToolId(id: string): McpToolRef | undefined {
+  let rest = id.trim();
+  if (rest.startsWith('tool::')) rest = rest.slice('tool::'.length);
+  if (/^(builtin|skill|steering)::/.test(rest) || /::(skill|steering)::/.test(rest) || rest.endsWith('::overview')) {
+    return undefined;
+  }
+  const parts = rest.split('::');
+  if (parts.length < 2) return undefined;
+  const server = parts[parts.length - 2].trim();
+  const tool = parts[parts.length - 1].trim();
+  if (!server || !tool || server === 'tool') return undefined;
+  return { server, tool: tool === '*' ? MCP_ALL_TOOLS : tool };
+}
+
+function mcpToolResource(server: string, tool: string): CedarActionMapping {
+  if (tool === MCP_ALL_TOOLS) {
+    return {
+      actionName: 'invokeTool',
+      resourceType: 'Tool',
+      resourceId: server,
+      resourceProperties: { name: server, description: `All tools of MCP server "${server}"`, connectionType: 'mcp' },
+      resourceParents: [{ type: 'MCPServer', id: server }],
+    };
+  }
+  return {
+    actionName: 'invokeTool',
+    resourceType: 'Tool',
+    resourceId: `${server}/${tool}`,
+    resourceProperties: { name: tool, description: `MCP tool "${tool}" on server "${server}"`, connectionType: 'mcp' },
+    resourceParents: [{ type: 'MCPServer', id: server }],
+  };
+}
+
+// The Tool, plus any path arguments as File/Directory resources.
+function mcpToolCallMapping(
+  server: string,
+  tool: string,
+  toolName: string,
+  toolInput: Record<string, any>,
+  cwd: string,
+): ToolMapping {
+  const toolMapping = mcpToolResource(server, tool);
+  const paths = dedupe(mcpPathArguments(toolInput).map((p) => resolveAgainst(cwd, p)));
+  if (paths.length === 0) return single(toolMapping);
+  const fileAction = MCP_WRITE_TOOL_NAME.test(tool) ? 'write' : 'read';
+  const files = many(fileAction, paths, cwd, { tool: toolName });
+  if (files.overCap) return { mappings: [], candidateCount: paths.length + 1, overCap: true };
+  return { mappings: [toolMapping, ...files.mappings], candidateCount: paths.length + 1 };
+}
+
 // Every resource one Kiro tool call touches. See ToolMapping in types.ts.
 // `dialect` picks how shell commands are parsed — PowerShell/cmd on
-// Windows, POSIX on macOS/Linux (see shellTargets.ts).
+// Windows, POSIX on macOS/Linux (see shellTargets.ts). `mcpServerNames`
+// lists the configured MCP servers, read only when an "mcp_<server>_<tool>"
+// name needs splitting.
 export function mapToolCall(
   toolName: string,
   toolInput: Record<string, any>,
   cwd: string,
   dialect: ShellDialect = shellDialectFor(),
+  mcpServerNames: () => string[] = () => readKiroMcpServers(cwd).map((s) => s.name),
 ): ToolMapping {
   if (KIRO_BASH_TOOL_NAMES.has(toolName)) {
     const command: string = toolInput.command || '';
@@ -467,35 +582,41 @@ export function mapToolCall(
     );
   }
 
-  // MCP tools. Kiro namespaces these as "@server/tool" (confirmed in the
-  // kiro-cli tool specs and live captures); the "mcp__server__tool" form is
-  // accepted too. The server name is kept verbatim — it is the config key
-  // ingestMcpServers registers the MCPServer entity under.
-  const kiroMcp = toolName.match(/^@([^/]+)\/(.+)$/);
-  if (kiroMcp || toolName.startsWith('mcp__')) {
-    let server: string;
-    let tool: string;
-    if (kiroMcp) {
-      server = kiroMcp[1];
-      tool = kiroMcp[2];
-    } else {
-      const parts = toolName.split('__');
-      server = parts[1] || 'unknown-server';
-      tool = parts.slice(2).join('__') || toolName;
+  // MCP tools — see parseMcpToolName for the three namings that reach this
+  // hook. The server name is the config key ingestMcpServers registers the
+  // MCPServer entity under whenever it can be recovered.
+  const mcp = parseMcpToolName(toolName, mcpServerNames);
+  if (mcp) return mcpToolCallMapping(mcp.server, mcp.tool, toolName, toolInput, cwd);
+
+  // The Kiro desktop app and kiro-cli V3 load MCP tools lazily and run them
+  // through a pair of built-in tools (as captured from the Kiro desktop app:
+  // tool_load { tool_ids: ["bigquery::get_table_info", ...] }).
+  // tool_call hands its hooks to the MCP tool it runs, which then arrives as
+  // "mcp_<server>_<tool>"; it is mapped here too in case a host reports it.
+  if (toolName === 'tool_call' && typeof toolInput.tool_id === 'string') {
+    const ref = parseMcpToolId(toolInput.tool_id);
+    if (ref) {
+      const args = toolInput.arguments && typeof toolInput.arguments === 'object' ? toolInput.arguments : {};
+      return mcpToolCallMapping(ref.server, ref.tool, toolName, args, cwd);
     }
-    const toolMapping: CedarActionMapping = {
-      actionName: 'invokeTool',
-      resourceType: 'Tool',
-      resourceId: `${server}/${tool}`,
-      resourceProperties: { name: tool, description: `MCP tool "${tool}" on server "${server}"`, connectionType: 'mcp' },
-      resourceParents: [{ type: 'MCPServer', id: server }],
-    };
-    const paths = dedupe(mcpPathArguments(toolInput).map((p) => resolveAgainst(cwd, p)));
-    if (paths.length === 0) return single(toolMapping);
-    const fileAction = MCP_WRITE_TOOL_NAME.test(tool) ? 'write' : 'read';
-    const files = many(fileAction, paths, cwd, { tool: toolName });
-    if (files.overCap) return { mappings: [], candidateCount: paths.length + 1, overCap: true };
-    return { mappings: [toolMapping, ...files.mappings], candidateCount: paths.length + 1 };
+  }
+  if (toolName === 'tool_load' && Array.isArray(toolInput.tool_ids)) {
+    const refs = new Map<string, McpToolRef>();
+    for (const id of toolInput.tool_ids) {
+      const ref = typeof id === 'string' ? parseMcpToolId(id) : undefined;
+      if (ref) refs.set(`${ref.server}/${ref.tool}`, ref);
+    }
+    if (refs.size > 0 && refs.size <= MAX_RESOURCES_PER_CALL) {
+      return { mappings: [...refs.values()].map((r) => mcpToolResource(r.server, r.tool)), candidateCount: refs.size };
+    }
+    // A load can name up to 20 tools. Above the per-call cap, evaluate each
+    // server once instead of denying the load; every tool is still checked
+    // on its own when it actually runs.
+    if (refs.size > MAX_RESOURCES_PER_CALL) {
+      const servers = dedupe([...refs.values()].map((r) => r.server));
+      return { mappings: servers.map((s) => mcpToolResource(s, MCP_ALL_TOOLS)), candidateCount: servers.length };
+    }
+    // Only built-in tools, skills or steering — nothing MCP to attribute.
   }
 
   return single({

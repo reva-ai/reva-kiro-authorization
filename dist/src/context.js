@@ -68,7 +68,7 @@ function activeSessionFields(extras) {
         agentType: ingestionClient_1.AGENT_TYPE,
         machineId: extras.machineId ?? '',
         os: osAttribute(),
-        ...(extras.modelContext && extras.model ? { model: extras.model } : {}),
+        ...(extras.model ? { model: extras.model } : {}),
     };
 }
 function buildActionContext(mapping, extras = {}) {
@@ -92,11 +92,11 @@ function buildActionContext(mapping, extras = {}) {
             return { timestamp, ...evidence, ...sessions };
     }
 }
-function buildInvokeAgentContext(activeSessionCount = 0, currentSession, model, modelContext = false, machineId) {
+function buildInvokeAgentContext(activeSessionCount = 0, currentSession, model, machineId) {
     return {
         timestamp: Date.now(),
         hops: [],
-        ...activeSessionFields({ activeSessionCount, currentSession, model, modelContext, machineId }),
+        ...activeSessionFields({ activeSessionCount, currentSession, model, machineId }),
     };
 }
 // `role`/`contentType`/`promptKey` are constants here — the hook payload has

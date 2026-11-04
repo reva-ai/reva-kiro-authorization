@@ -141,24 +141,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, settingsPath?: 
     pdpUrl,
     authorization,
     agentId,
-    // Whether `model` may be sent in the evaluation context.
-    //
-    // ON by default. It was once off, on the theory that Cedar context is
-    // closed per action and an undeclared `model` would get the whole request
-    // rejected as a schema violation. Comparing the PDP's evaluated context
-    // against what was sent disproved that for this endpoint: `model` was
-    // sent in context, the evaluated context came back WITHOUT it, and the
-    // decision was still `allow`. Undeclared context fields are dropped, not
-    // rejected. Kiro already relies on this for the five fields it sends that
-    // no schema declares (activeSessionCount, agentType, sessionId,
-    // sessionEntryPoint, sessionLastSeen), so `model` was the odd one out —
-    // gated behind a flag nobody sets, which is the whole reason it was
-    // missing from the wire.
-    //
-    // REVA_MODEL_CONTEXT=0 (or "false") still turns it off, for a deployment
-    // that does enforce strict context validation. Anything else, including
-    // unset, leaves it on.
-    modelContext: !['0', 'false'].includes((effective.REVA_MODEL_CONTEXT ?? '').trim().toLowerCase()),
     // Optional. Unset (the default) sends no header at all, which is how
     // every deployment confirmed so far works — the PDP resolves the store
     // from the auth token. Set it when a deployment serves more than one

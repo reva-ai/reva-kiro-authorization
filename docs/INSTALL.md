@@ -227,8 +227,9 @@ tail -f ~/.kiro/reva-governance/debug.log
 
 - **Kiro IDE** → five files in `~/.kiro/hooks/` (`reva-session-start.json`,
   `reva-prompt-submit.json`, `reva-pre-tool-use.json`, `reva-post-tool-use.json`,
-  `reva-stop.json`). They apply to every project. Use `--project <path>` to install into one
-  project instead.
+  `reva-session-end.json`). They apply to every project. Use `--project <path>` to install into
+  one project instead. An older `reva-stop.json` is removed — `Stop` fires after every reply,
+  not when a session closes.
 - **kiro-cli** → a `hooks` block in `~/.kiro/agents/reva-governance.json`. A new agent is
   created with the `shell` and `use_subagent` tools; an existing one only has its `hooks`
   field changed. Use `--agent <name>` to add the hooks to an agent you already use.

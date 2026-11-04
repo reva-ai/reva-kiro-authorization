@@ -130,7 +130,6 @@ async function main() {
                 activeSessionCount,
                 currentSession,
                 model,
-                modelContext: cfg.modelContext,
                 machineId,
             }),
             transmission,
