@@ -34,7 +34,10 @@ const CLI_EVENT_ALIASES: Record<string, CanonicalHookEvent> = {
   stop: 'Stop',
 };
 
-const IDE_EVENTS = new Set<string>(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']);
+// SessionEnd: the Kiro desktop app and kiro-cli V3 only, fired when a session
+// is torn down (payload adds `reason`). Not in Kiro's public trigger list yet;
+// read from Kiro's own implementation.
+const IDE_EVENTS = new Set<string>(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd']);
 
 // Detect from the payload's own trigger name rather than from an env var or
 // a build flag: the trigger name is the one field both hosts always send,
@@ -96,23 +99,28 @@ export function normalizeInput(
 }
 
 // The surface reported as context.sessionEntryPoint: 'cli' for a terminal
-// session and 'ide-<editor>' inside an editor — so a policy matching `cli` or
-// `ide-…` has one meaning across terminals and editors.
+// session and 'Kiro Desktop' for Kiro's own desktop app, so Reva maps it to
+// the Desktop App surface. The Kiro IDE is Kiro's desktop app rather than
+// an editor extension, so it is not reported as 'ide-<editor>'.
 //
 //   kiro-cli  -> 'cli'
-//   Kiro IDE  -> 'ide-kiro'
+//   Kiro IDE  -> 'Kiro Desktop'
+//
+// This function only knows what the payload says. kiro-cli V3 sends the
+// IDE-shaped payload, so hooks call surface.ts's resolveSessionEntrypoint,
+// which settles an IDE-shaped payload from the parent processes.
 //
 // THESE STRINGS ARE POLICY-VISIBLE: changing one silently stops a policy
 // written against it from matching. REVA_SESSION_ENTRYPOINT names the
 // surface explicitly when a deployment needs a different value; Kiro's host
 // is always detected, so it is checked first rather than as a fallback.
 export const CLI_ENTRYPOINT = 'cli';
-export const IDE_ENTRYPOINT = 'ide-kiro';
+export const DESKTOP_ENTRYPOINT = 'Kiro Desktop';
 
 export function sessionEntrypoint(host: RevaHost, env: NodeJS.ProcessEnv = process.env): string {
   const declared = env.REVA_SESSION_ENTRYPOINT?.trim();
   if (declared) return declared;
-  return host === 'kiro-cli' ? CLI_ENTRYPOINT : IDE_ENTRYPOINT;
+  return host === 'kiro-cli' ? CLI_ENTRYPOINT : DESKTOP_ENTRYPOINT;
 }
 
 // The entrypoint's env-var override, so `npm run doctor` and the test suite
@@ -147,7 +155,7 @@ export function emitDecision(host: RevaHost, event: CanonicalHookEvent, result: 
   // is the one thing a governance plugin must never do on its way down.
   if (result.inactive) process.exit(0);
 
-  if (event === 'PostToolUse' || event === 'SessionStart' || event === 'Stop') {
+  if (event === 'PostToolUse' || event === 'SessionStart' || event === 'Stop' || event === 'SessionEnd') {
     // Both hosts ignore output from these entirely — the tool already ran /
     // the session already started/ended. Stop is local cleanup only (no PDP).
     process.exit(0);

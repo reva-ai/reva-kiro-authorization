@@ -30,8 +30,8 @@ import { test } from 'node:test';
 // against the plugin. That is not hypothetical: the "no debug log file"
 // test below began failing the moment someone had REVA_DEBUG_LOG_FILE
 // exported — debug correctly went to their file, stderr was empty, and the
-// assertion broke. The same leak through REVA_POLICY_STORE_ID,
-// REVA_MODEL_CONTEXT or REVA_HOST would change what the child sends without
+// assertion broke. The same leak through REVA_POLICY_STORE_ID or
+// REVA_HOST would change what the child sends without
 // any test noticing.
 //
 // PATH and the OS essentials stay, because the child is a real `node`

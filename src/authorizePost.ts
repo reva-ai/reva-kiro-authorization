@@ -112,7 +112,6 @@ async function main(): Promise<void> {
         activeSessionCount,
         currentSession,
         model,
-        modelContext: cfg.modelContext,
         machineId,
       }),
       transmission,

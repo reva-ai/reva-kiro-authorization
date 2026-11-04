@@ -12,11 +12,9 @@ export function buildInvokeAgentRequest(
   session: DirectEvalSession,
   activeSessionCount = 0,
   currentSession?: ActiveSession,
-  // Kiro's model for this session, and the gate that decides whether it may
-  // be sent at all — see context.ts. Both optional: Kiro does not put the
-  // model on the wire, so an absent one is the normal case.
+  // Kiro's model for this session — see context.ts. Optional: Kiro does not
+  // put the model on the wire, so an absent one is the normal case.
   model?: string,
-  modelContext = false,
   // This machine's id, sent as context.machineId — see context.ts.
   machineId?: string,
 ): CedarRequest {
@@ -35,7 +33,7 @@ export function buildInvokeAgentRequest(
     principal: directSpecOf(userDescriptor),
     action: { name: 'invokeAgent' },
     resource: directSpecOf(agentDescriptor),
-    context: buildInvokeAgentContext(activeSessionCount, currentSession, model, modelContext, machineId),
+    context: buildInvokeAgentContext(activeSessionCount, currentSession, model, machineId),
     transmission: buildTransmission(prompt, 'user'),
     session,
   };

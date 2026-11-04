@@ -27,7 +27,17 @@ The plugin hooks five points in a Kiro session:
 | You submit a prompt | `UserPromptSubmit` | `userPromptSubmit` | Checks whether you're allowed to invoke the coding agent at all this turn. Also rechecks Kiro's `mcp.json` files roughly every 15 minutes, so a server added mid-session doesn't wait until your next session to register. |
 | Before any tool call | `PreToolUse` | `preToolUse` | Checks whether that specific action is allowed, and blocks it if not. The first call to a tool of an MCP server that isn't registered yet also registers that server in the background. |
 | After a tool call completes | `PostToolUse` | `postToolUse` | Re-evaluates with the actual result, for policies that care what a command returned. Audit only — the tool has already run. |
-| Kiro finishes responding | `Stop` | `stop` | Removes the session from local active-session tracking and logs the model used. No Reva request. |
+| A session closes | `SessionEnd` (Kiro IDE and kiro-cli V3) | — | Removes the session from the local active-session count. No Reva request. |
+
+**How `activeSessionCount` drops a closed session.** Kiro does not reliably fire `SessionEnd`
+(in testing it never fired when a kiro-cli V3 session closed), so the plugin does not depend on
+it:
+
+- **kiro-cli V3** — at session start the plugin records the session's own kiro-cli process, and
+  stops counting the session as soon as that process has exited, however it ended (`/quit`,
+  Ctrl+C, closed window, crash).
+- **Kiro IDE chats and kiro-cli 2.x** — no process of their own to watch (every IDE chat runs
+  in the same Kiro process), so they drop out after 10 minutes without activity.
 
 Every check is synchronous, before (or immediately after) the action. The session-start
 registration also starts from the first prompt of a session, so it still happens when a
@@ -62,7 +72,8 @@ an arbitrary shell command" rather than lumping everything under one permission:
 | Edits a file | `fs_write` (`str_replace` / `insert` / `append`), `str_replace`, … | `edit` |
 | Searches by file name | `glob`, `file_search`, `fileSearch` | `glob` |
 | Searches file contents | `grep`, `grep_search`, `codebaseSearch` | `grep` |
-| Calls an MCP tool (`@server/tool`) | any | `invokeTool` |
+| Calls an MCP tool (`@server/tool` in kiro-cli 2.x; `mcp_<server>_<tool>` in Kiro Desktop and kiro-cli V3) | any | `invokeTool` on `Tool`, child of its `MCPServer` |
+| Loads MCP tools (`tool_load`, Kiro Desktop and kiro-cli V3) | any | `invokeTool` — one per loaded tool, child of its `MCPServer` |
 | Spawns a sub-agent | `subagent`, `use_subagent`, `invoke_sub_agent`, `delegate` | `spawn` — one per sub-agent, numbered per turn |
 | Starts a new turn | — | `invokeAgent` |
 

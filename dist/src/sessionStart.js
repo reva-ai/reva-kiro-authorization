@@ -42,6 +42,7 @@ const deviceId_1 = require("./deviceId");
 const ingestionClient_1 = require("./ingestionClient");
 const identity_1 = require("./identity");
 const host_1 = require("./host");
+const surface_1 = require("./surface");
 const kiroSession_1 = require("./kiroSession");
 const launchModel_1 = require("./launchModel");
 const mcpConfig_1 = require("./mcpConfig");
@@ -134,12 +135,17 @@ async function main() {
     }
     else {
         try {
-            // sessionEntryPoint is the detected host ('kiro-ide' / 'kiro-cli'),
-            // which is a real, observed fact rather than a guessed env var —
-            // host.ts derives it from the trigger name the payload actually
-            // carried. It also makes the active-session count meaningful when
-            // someone runs the IDE and the CLI at the same time.
-            (0, activeSessions_1.markSessionActive)(agentId, input.sessionId, (0, host_1.sessionEntrypoint)(input.host), pluginDataDir);
+            // sessionEntryPoint is the detected surface ('cli' / 'Kiro Desktop'),
+            // an observed fact rather than a guessed env var — from the trigger
+            // name the payload carried, or for kiro-cli V3 (which sends the IDE's
+            // payload) from the parent processes; see surface.ts. Resolved here
+            // first so the session's later hooks reuse it. It also makes the
+            // active-session count meaningful when someone runs the IDE and the
+            // CLI at the same time.
+            // The kiro-cli process id found here is stored with the session, so it
+            // stops counting the moment that process exits (activeSessions.ts).
+            const surface = (0, surface_1.resolveSessionSurface)({ host: input.host, agentId, sessionId: input.sessionId, pluginDataDir });
+            (0, activeSessions_1.markSessionActive)(agentId, input.sessionId, surface.entrypoint, pluginDataDir, surface.pid);
         }
         catch (err) {
             (0, debug_1.debugLog)(`sessionStart: markSessionActive failed — ${err?.message || String(err)}`);

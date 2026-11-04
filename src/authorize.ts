@@ -16,7 +16,8 @@ import { describeModel, resolveSessionModelWithSource } from './kiroSession';
 import { readStdin } from './stdin';
 import { reserveSpawnIndices } from './spawnCounter';
 import { deriveSpanId, toolSpanKey, traceparentHeader } from './trace';
-import { emitDecision, hostLabel, normalizeInput, blocksAt, sessionEntrypoint } from './host';
+import { emitDecision, hostLabel, normalizeInput, blocksAt } from './host';
+import { resolveSessionSurface } from './surface';
 import { CedarActionMapping, CedarEntityDescriptor, CedarHop, CedarRequest, PdpResult, RevaHost } from './types';
 import { conversationFromTurn, directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId } from './turnCache';
 
@@ -58,12 +59,8 @@ async function main(): Promise<void> {
   // configured id regardless of subagent status, so this still refreshes
   // the right entry (the registry itself stays local-machine-scoped
   // regardless of what agentId now represents — see deviceId.ts).
-  const currentSession = markSessionActive(
-    cfg.agentId,
-    input.sessionId,
-    sessionEntrypoint(input.host),
-    pluginDataDir,
-  );
+  const surface = resolveSessionSurface({ host: input.host, agentId: cfg.agentId, sessionId: input.sessionId, pluginDataDir });
+  const currentSession = markSessionActive(cfg.agentId, input.sessionId, surface.entrypoint, pluginDataDir, surface.pid);
   const activeSessionCount = getActiveSessionCount(cfg.agentId, pluginDataDir);
 
   const agentCtx = resolveAgentContext(cfg.agentId, input);
@@ -130,11 +127,17 @@ async function main(): Promise<void> {
   // mcpIngestionTrigger.ts). Contained in its own try/catch on purpose:
   // main()'s catch fails CLOSED, so a throw from this best-effort
   // bookkeeping would deny a legitimate tool call.
+  // Every distinct server, since a tool_load can name several.
   try {
-    const mcpServer = toolMapping.mappings
-      .flatMap((m) => m.resourceParents || [])
-      .find((parent) => parent.type === 'MCPServer');
-    if (mcpServer) triggerMcpIngestionForInvokedServer(cfg, userEmail, mcpServer.id, input.cwd, pluginDataDir);
+    const mcpServers = new Set(
+      toolMapping.mappings
+        .flatMap((m) => m.resourceParents || [])
+        .filter((parent) => parent.type === 'MCPServer')
+        .map((parent) => parent.id),
+    );
+    for (const server of mcpServers) {
+      triggerMcpIngestionForInvokedServer(cfg, userEmail, server, input.cwd, pluginDataDir);
+    }
   } catch (err: any) {
     debugLog(`authorize: ingest-on-invoke skipped — ${err?.message || String(err)}`);
   }
@@ -189,7 +192,6 @@ async function main(): Promise<void> {
         activeSessionCount,
         currentSession,
         model,
-        modelContext: cfg.modelContext,
         machineId,
       }),
       transmission,

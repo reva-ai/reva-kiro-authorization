@@ -19,10 +19,6 @@ export interface RevaConfig {
   // TRANSPORT UNCONFIRMED — see config.ts's DEFAULT_POLICY_STORE_HEADER.
   policyStoreId: string;
   policyStoreHeader: string;
-  // Whether to include `model` in the evaluation context. Cedar context is
-  // closed per action, so this stays off until a deployment's schema
-  // declares the attribute. REVA_MODEL_CONTEXT=1 enables it.
-  modelContext: boolean;
   // Ingestion API (registers User/Agent/MCPServer entities so they exist
   // before any evaluation request references them) — a separate base URL
   // and timeout from evaluation (best-effort, no user-facing value worth
@@ -40,7 +36,7 @@ export type RevaHost = 'kiro-ide' | 'kiro-cli';
 // The IDE's trigger names are used as the canonical vocabulary throughout
 // this plugin; kiro-cli's camelCase names (`agentSpawn`, `userPromptSubmit`,
 // `preToolUse`, `postToolUse`) are aliased onto these in host.ts.
-export type CanonicalHookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop';
+export type CanonicalHookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop' | 'SessionEnd';
 
 // The one shape every entrypoint works from, produced by
 // host.ts's normalizeInput() out of either host's raw payload.

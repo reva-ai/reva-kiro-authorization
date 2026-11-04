@@ -551,3 +551,86 @@ test('an unknown future tool is still evaluated, never skipped', () => {
   assert.equal(m.actionName, 'invokeTool');
   assert.equal(m.resourceId, 'some_tool_added_next_year');
 });
+
+// --- MCP tools in the Kiro desktop app and kiro-cli V3 ------------------------
+// One agent engine runs both. MCP tools are named "mcp_<server>_<tool>" and
+// load lazily through tool_load / tool_call with "server::tool" ids. Before
+// these were recognized, the tool was evaluated and the server never was.
+
+import { kiroMcpIdPart, mapToolCall as mapCall, parseMcpToolId, parseMcpToolName } from '../src/mapping';
+
+const SERVERS = () => ['bigquery', 'aws-docs', 'aws', 'My Server'];
+
+test('V3 mcp_<server>_<tool>: the server is recovered from the configured names, longest first', () => {
+  assert.deepEqual(parseMcpToolName('mcp_bigquery_execute_sql_readonly', SERVERS), { server: 'bigquery', tool: 'execute_sql_readonly' });
+  // "aws-docs" is cleaned to "aws_docs" by Kiro and must win over "aws".
+  assert.deepEqual(parseMcpToolName('mcp_aws_docs_search_documentation', SERVERS), { server: 'aws-docs', tool: 'search_documentation' });
+  assert.deepEqual(parseMcpToolName('mcp_aws_call_aws', SERVERS), { server: 'aws', tool: 'call_aws' });
+  assert.deepEqual(parseMcpToolName('mcp_my_server_ping', SERVERS), { server: 'My Server', tool: 'ping' });
+});
+
+test('V3 mcp_<server>_<tool>: an undeclared server still gets an MCPServer parent (first segment)', () => {
+  assert.deepEqual(parseMcpToolName('mcp_jira_create_issue', () => []), { server: 'jira', tool: 'create_issue' });
+  assert.equal(parseMcpToolName('mcp_', () => []), undefined);
+  assert.equal(parseMcpToolName('read_file', SERVERS), undefined);
+});
+
+test('kiroMcpIdPart cleans a name the way Kiro builds MCP tool ids', () => {
+  assert.equal(kiroMcpIdPart('aws-docs'), 'aws_docs');
+  assert.equal(kiroMcpIdPart('My Server'), 'my_server');
+  assert.equal(kiroMcpIdPart('gh.enterprise'), 'ghenterprise');
+});
+
+test('V3 MCP call maps to invokeTool on the Tool with its MCPServer parent', () => {
+  const r = mapCall('mcp_bigquery_execute_sql_readonly', { sql: 'SELECT 1' }, process.cwd(), undefined, SERVERS);
+  assert.equal(r.mappings.length, 1);
+  assert.equal(r.mappings[0].actionName, 'invokeTool');
+  assert.equal(r.mappings[0].resourceId, 'bigquery/execute_sql_readonly');
+  assert.deepEqual(r.mappings[0].resourceParents, [{ type: 'MCPServer', id: 'bigquery' }]);
+});
+
+test('parseMcpToolId: server::tool and its prefixed forms; built-ins, skills and steering are not MCP', () => {
+  assert.deepEqual(parseMcpToolId('bigquery::get_table_info'), { server: 'bigquery', tool: 'get_table_info' });
+  assert.deepEqual(parseMcpToolId('tool::bigquery::get_table_info'), { server: 'bigquery', tool: 'get_table_info' });
+  assert.deepEqual(parseMcpToolId('mypower::tool::bigquery::get_table_info'), { server: 'bigquery', tool: 'get_table_info' });
+  for (const id of ['builtin::read_file', 'tool::builtin::read_file', 'skill::x', 'mypower::skill::x', 'mypower::steering::y', 'power::mypower::overview', 'plain']) {
+    assert.equal(parseMcpToolId(id), undefined, id);
+  }
+});
+
+test('tool_load, as captured from the Kiro desktop app: each loaded MCP tool is evaluated under its server', () => {
+  const r = mapCall('tool_load', { tool_ids: ['bigquery::get_table_info', 'bigquery::execute_sql_readonly'] }, process.cwd());
+  assert.deepEqual(r.mappings.map((m) => m.resourceId), ['bigquery/get_table_info', 'bigquery/execute_sql_readonly']);
+  for (const m of r.mappings) {
+    assert.equal(m.actionName, 'invokeTool');
+    assert.deepEqual(m.resourceParents, [{ type: 'MCPServer', id: 'bigquery' }]);
+  }
+});
+
+test('tool_load "server::*" is evaluated as the whole server — never a literal "*" in a resource id', () => {
+  const r = mapCall('tool_load', { tool_ids: ['bigquery::*'] }, process.cwd());
+  assert.equal(r.mappings.length, 1);
+  assert.equal(r.mappings[0].resourceId, 'bigquery');
+  assert.ok(!r.mappings[0].resourceId.includes('*'));
+  assert.deepEqual(r.mappings[0].resourceParents, [{ type: 'MCPServer', id: 'bigquery' }]);
+});
+
+test('tool_load above the per-call cap is evaluated once per server instead of being denied', () => {
+  const ids = Array.from({ length: 14 }, (_, i) => `${i % 2 ? 'bigquery' : 'jira'}::t${i}`);
+  const r = mapCall('tool_load', { tool_ids: ids }, process.cwd());
+  assert.ok(!r.overCap);
+  assert.deepEqual(r.mappings.map((m) => m.resourceId).sort(), ['bigquery', 'jira']);
+});
+
+test('tool_load of only built-in tools stays a plain tool call', () => {
+  const r = mapCall('tool_load', { tool_ids: ['builtin::read_file'] }, process.cwd());
+  assert.equal(r.mappings[0].resourceId, 'tool_load');
+  assert.equal(r.mappings[0].resourceParents, undefined);
+});
+
+test('tool_call with an MCP tool id maps to that tool, with its arguments checked for paths', () => {
+  const r = mapCall('tool_call', { tool_id: 'filesystem::read_file', arguments: { path: 'notes.txt' } }, process.cwd());
+  assert.equal(r.mappings[0].resourceId, 'filesystem/read_file');
+  assert.deepEqual(r.mappings[0].resourceParents, [{ type: 'MCPServer', id: 'filesystem' }]);
+  assert.equal(r.mappings[1].actionName, 'read');
+});

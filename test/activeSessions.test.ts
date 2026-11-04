@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
-import { getActiveSessionCount, getActiveSessions, getSessionEntry, markSessionActive } from '../src/activeSessions';
+import { getActiveSessionCount, getActiveSessions, getSessionEntry, markSessionActive, touchSession, isProcessRunning } from '../src/activeSessions';
+import { spawn } from 'node:child_process';
 
 function withTempDir(fn: (dir: string) => void): void {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reva-governance-active-sessions-'));
@@ -156,4 +157,50 @@ test('with no pluginDataDir, everything no-ops instead of falling back to a home
 
   // Never created (or re-created) ~/.reva-governance as a side effect.
   assert.equal(fs.existsSync(homeRevaGovernance), existedBefore);
+});
+
+test('touchSession keeps an open session counted and refreshes it; it never adds one', () => {
+  withTempDir((dir) => {
+    markSessionActive('agent-1', 'sess-1', 'cli', dir);
+    const before = getSessionEntry('agent-1', 'sess-1', dir)!.lastSeen;
+    assert.equal(touchSession('agent-1', 'sess-1', dir), true);
+    const after = getSessionEntry('agent-1', 'sess-1', dir)!;
+    assert.equal(after.entrypoint, 'cli');
+    assert.ok(after.lastSeen >= before);
+    assert.equal(getActiveSessionCount('agent-1', dir), 1);
+
+    assert.equal(touchSession('agent-1', 'never-seen', dir), false);
+    assert.equal(getActiveSessionCount('agent-1', dir), 1);
+  });
+});
+
+// Kiro sends no hook when a kiro-cli session closes, so a session that
+// recorded its kiro-cli process stops counting once that process has exited.
+test('a session whose kiro-cli process has exited stops counting at once; a running one keeps counting', async () => {
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+  try {
+    await new Promise<void>((resolve) => child.once('spawn', () => resolve()));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reva-governance-active-sessions-'));
+    markSessionActive('agent-1', 'open', 'cli', dir, process.pid);
+    markSessionActive('agent-1', 'closing', 'cli', dir, child.pid);
+    markSessionActive('agent-1', 'desktop-chat', 'Kiro Desktop', dir);
+    assert.equal(getActiveSessionCount('agent-1', dir), 3);
+
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill();
+    await exited;
+    assert.equal(isProcessRunning(child.pid!), false);
+    assert.deepEqual(getActiveSessions('agent-1', dir).map((s) => s.sessionId).sort(), ['desktop-chat', 'open']);
+    fs.rmSync(dir, { recursive: true, force: true });
+  } finally {
+    child.kill();
+  }
+});
+
+test('re-marking a session keeps its stored kiro-cli pid', () => {
+  withTempDir((dir) => {
+    markSessionActive('agent-1', 'sess-1', 'cli', dir, process.pid);
+    markSessionActive('agent-1', 'sess-1', 'cli', dir);
+    assert.equal(getSessionEntry('agent-1', 'sess-1', dir)?.pid, process.pid);
+  });
 });

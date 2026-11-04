@@ -6,7 +6,8 @@ import { applyKiroCliEnv } from './kiroSettings';
 import { resolveAgentId, resolveMachineId } from './deviceId';
 import { ingestAgent, ingestMcpServers, ingestUser, recordMcpDiscoveryTriggered, resolveEntityTypeIds } from './ingestionClient';
 import { resolveUserEmail } from './identity';
-import { hostLabel, normalizeInput, sessionEntrypoint } from './host';
+import { hostLabel, normalizeInput } from './host';
+import { resolveSessionSurface } from './surface';
 import { readCachedKiroDefaultModel, recordKiroDefaultModel, recordLaunchModel, resolveSessionModel } from './kiroSession';
 import { readKiroDefaultModel, readLaunchModelFlag } from './launchModel';
 import { readKiroMcpServers } from './mcpConfig';
@@ -100,12 +101,17 @@ async function main(): Promise<void> {
     debugLog('sessionStart: skipped active-session tracking — no account id available and REVA_AGENT_ID not set');
   } else {
     try {
-      // sessionEntryPoint is the detected host ('kiro-ide' / 'kiro-cli'),
-      // which is a real, observed fact rather than a guessed env var —
-      // host.ts derives it from the trigger name the payload actually
-      // carried. It also makes the active-session count meaningful when
-      // someone runs the IDE and the CLI at the same time.
-      markSessionActive(agentId, input.sessionId, sessionEntrypoint(input.host), pluginDataDir);
+      // sessionEntryPoint is the detected surface ('cli' / 'Kiro Desktop'),
+      // an observed fact rather than a guessed env var — from the trigger
+      // name the payload carried, or for kiro-cli V3 (which sends the IDE's
+      // payload) from the parent processes; see surface.ts. Resolved here
+      // first so the session's later hooks reuse it. It also makes the
+      // active-session count meaningful when someone runs the IDE and the
+      // CLI at the same time.
+      // The kiro-cli process id found here is stored with the session, so it
+      // stops counting the moment that process exits (activeSessions.ts).
+      const surface = resolveSessionSurface({ host: input.host, agentId, sessionId: input.sessionId, pluginDataDir });
+      markSessionActive(agentId, input.sessionId, surface.entrypoint, pluginDataDir, surface.pid);
     } catch (err: any) {
       debugLog(`sessionStart: markSessionActive failed — ${err?.message || String(err)}`);
     }

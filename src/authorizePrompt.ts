@@ -16,7 +16,8 @@ import { triggerMcpDiscoveryIfDue } from './mcpIngestionTrigger';
 import { readStdin } from './stdin';
 import { buildSessionContext, deriveSpanId, traceparentHeader } from './trace';
 import { emitDecision, hostLabel, blocksAt } from './host';
-import { normalizeInput, sessionEntrypoint } from './host';
+import { normalizeInput } from './host';
+import { resolveSessionSurface } from './surface';
 import { CedarHop, PdpResult, RevaHost } from './types';
 import { directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId, startTurn, truncatePrompt } from './turnCache';
 
@@ -58,12 +59,8 @@ async function main(): Promise<void> {
 
   // PromptSubmit fires every turn, unlike SessionStart (once per session) —
   // a good second place to keep this session's lastSeen fresh.
-  const currentSession = markSessionActive(
-    cfg.agentId,
-    input.sessionId,
-    sessionEntrypoint(input.host),
-    pluginDataDir,
-  );
+  const surface = resolveSessionSurface({ host: input.host, agentId: cfg.agentId, sessionId: input.sessionId, pluginDataDir });
+  const currentSession = markSessionActive(cfg.agentId, input.sessionId, surface.entrypoint, pluginDataDir, surface.pid);
   const activeSessionCount = getActiveSessionCount(cfg.agentId, pluginDataDir);
 
   // Register User/Agent/MCPServer in Reva's directory, once per session.
@@ -119,7 +116,7 @@ async function main(): Promise<void> {
   // question the debug trail has to be able to answer.
   const resolvedModel = resolveSessionModelWithSource(input.sessionId, process.env, os.homedir(), pluginDataDir);
   const model = resolvedModel.model;
-  debugLog(`model=${describeModel(resolvedModel)} modelContext=${cfg.modelContext}`);
+  debugLog(`model=${describeModel(resolvedModel)}`);
 
   const request = buildInvokeAgentRequest(
     userEmail,
@@ -129,7 +126,6 @@ async function main(): Promise<void> {
     activeSessionCount,
     currentSession,
     model,
-    cfg.modelContext,
     resolveMachineId(pluginDataDir),
   );
 

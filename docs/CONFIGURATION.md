@@ -23,8 +23,7 @@ file — and also why a stale variable left in your environment silently wins.
 | `REVA_POLICY_STORE_ID` | no | unset | Sent as a request header on evaluation and ingestion when set. Unset means Reva resolves the store from the token, which is the normal case. |
 | `REVA_POLICY_STORE_HEADER` | no | `policyStoreId` | The header name carrying the above. |
 | `REVA_MODEL` | no | unset | Pins the model reported to Reva. Unset reads it from Kiro — see "Model" below. |
-| `REVA_MODEL_CONTEXT` | no | on | `0` or `false` leaves `model` out of the evaluation context. |
-| `REVA_SESSION_ENTRYPOINT` | no | `cli` / `ide-kiro` | Overrides `context.sessionEntryPoint`. |
+| `REVA_SESSION_ENTRYPOINT` | no | `cli` / `Kiro Desktop` | Overrides `context.sessionEntryPoint`. |
 | `REVA_KIRO_DB_PATH` | no | kiro-cli's `data.sqlite3` | Where to read the Kiro account id from. Intended for tests and non-standard installs. |
 | `REVA_KIRO_SETTINGS_PATH` | no | `~/.kiro/settings/cli.json` | Overrides which settings file `REVA_*` values are read from. Intended for tests. |
 | `REVA_SESSION_CWD` | no | the hook's own cwd | Set by the plugin when it spawns its detached MCP-ingestion child. Not intended to be set by hand. |
@@ -46,8 +45,11 @@ remembered for this session; the `--model` flag kiro-cli was launched with; your
 `chat.defaultModel` setting; Kiro's default. When Kiro is in `auto` mode it chooses the model
 on its servers and never records which one, so `auto` is reported as is.
 
-**Entry point.** `context.sessionEntryPoint` is `cli` for kiro-cli and `ide-kiro` for the
-Kiro IDE.
+**Entry point.** `context.sessionEntryPoint` is `cli` for kiro-cli and `Kiro Desktop` for the
+Kiro IDE. kiro-cli V3 sends the same hook payload as the Kiro IDE, so for those payloads the
+plugin checks which Kiro program started the hook — `kiro-cli` gives `cli`, the Kiro app gives
+`Kiro Desktop` — once per session (about 1.5 seconds on Windows, at session start). kiro-cli
+run inside the Kiro app's terminal is reported as `cli`.
 
 ## If you are not signed in to Kiro
 

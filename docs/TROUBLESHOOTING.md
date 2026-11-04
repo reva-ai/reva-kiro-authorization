@@ -147,7 +147,12 @@ immediately the first time one of its tools is called. Look for `ingestMcpServer
 the debug log — each server is reported as `ok` or `FAILED`, and a failed one is retried
 later.
 
-MCP tool calls are evaluated as `invokeTool` whether or not the server is registered.
+MCP tool calls are evaluated as `invokeTool` whether or not the server is registered, always
+with the server as the tool's `MCPServer` parent. Kiro Desktop and kiro-cli V3 name an MCP tool
+`mcp_<server>_<tool>`, which hides where the server name ends; the plugin matches it against the
+servers in your `mcp.json` files. For a server no `mcp.json` declares, it takes the first part of
+the name after `mcp_` — so a server whose own name contains `_` or `-` should be declared in
+`mcp.json` to be reported under its exact name.
 
 ## Known limitations
 

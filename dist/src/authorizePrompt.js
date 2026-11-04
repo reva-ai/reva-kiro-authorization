@@ -52,6 +52,7 @@ const stdin_1 = require("./stdin");
 const trace_1 = require("./trace");
 const host_1 = require("./host");
 const host_2 = require("./host");
+const surface_1 = require("./surface");
 const turnCache_1 = require("./turnCache");
 // UserPromptSubmit (IDE) / userPromptSubmit (kiro-cli) — the top-level
 // "a human handed the agent an instruction" gate, evaluated as invokeAgent.
@@ -87,7 +88,8 @@ async function main() {
     const prompt = input.prompt ? (0, turnCache_1.truncatePrompt)(input.prompt) : '';
     // PromptSubmit fires every turn, unlike SessionStart (once per session) —
     // a good second place to keep this session's lastSeen fresh.
-    const currentSession = (0, activeSessions_1.markSessionActive)(cfg.agentId, input.sessionId, (0, host_2.sessionEntrypoint)(input.host), pluginDataDir);
+    const surface = (0, surface_1.resolveSessionSurface)({ host: input.host, agentId: cfg.agentId, sessionId: input.sessionId, pluginDataDir });
+    const currentSession = (0, activeSessions_1.markSessionActive)(cfg.agentId, input.sessionId, surface.entrypoint, pluginDataDir, surface.pid);
     const activeSessionCount = (0, activeSessions_1.getActiveSessionCount)(cfg.agentId, pluginDataDir);
     // Register User/Agent/MCPServer in Reva's directory, once per session.
     // Fires from HERE rather than only from session start because kiro-cli
@@ -141,8 +143,8 @@ async function main() {
     // question the debug trail has to be able to answer.
     const resolvedModel = (0, kiroSession_1.resolveSessionModelWithSource)(input.sessionId, process.env, os.homedir(), pluginDataDir);
     const model = resolvedModel.model;
-    (0, debug_1.debugLog)(`model=${(0, kiroSession_1.describeModel)(resolvedModel)} modelContext=${cfg.modelContext}`);
-    const request = (0, invokeAgent_1.buildInvokeAgentRequest)(userEmail, cfg.agentId, prompt, (0, turnCache_1.directSessionFromTurn)(input.sessionId, turn), activeSessionCount, currentSession, model, cfg.modelContext, (0, deviceId_1.resolveMachineId)(pluginDataDir));
+    (0, debug_1.debugLog)(`model=${(0, kiroSession_1.describeModel)(resolvedModel)}`);
+    const request = (0, invokeAgent_1.buildInvokeAgentRequest)(userEmail, cfg.agentId, prompt, (0, turnCache_1.directSessionFromTurn)(input.sessionId, turn), activeSessionCount, currentSession, model, (0, deviceId_1.resolveMachineId)(pluginDataDir));
     (0, debug_1.debugLog)(`-> invokeAgent as ${userEmail} on Agent:${cfg.agentId} trace=${traceId}`);
     const result = await (0, pdpClient_1.evaluate)(cfg, request, traceparent, pluginDataDir, input.sessionId);
     (0, debug_1.debugLog)(`<- decision=${result.decision}${result.reason ? ` reason="${result.reason}"` : ''}`);

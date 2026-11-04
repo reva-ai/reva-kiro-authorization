@@ -20,7 +20,6 @@ const cfg: RevaConfig = {
   agentId: 'aa-bb-cc-dd-ee-ff',
   timeoutMs: 1000,
   ingestionUrl: 'https://pdp.test/ingestion/v2',
-  modelContext: false,
   policyStoreId: '',
   policyStoreHeader: 'policyStoreId',
   ingestionTimeoutMs: 1000,
