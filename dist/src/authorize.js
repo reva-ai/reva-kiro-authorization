@@ -42,7 +42,6 @@ const deviceId_1 = require("./deviceId");
 const kiroSettings_1 = require("./kiroSettings");
 const entity_1 = require("./entity");
 const evaluateAll_1 = require("./evaluateAll");
-const hopChain_1 = require("./hopChain");
 const identity_1 = require("./identity");
 const mapping_1 = require("./mapping");
 const mcpIngestionTrigger_1 = require("./mcpIngestionTrigger");
@@ -166,22 +165,20 @@ async function main() {
             agentType: agentCtx.subAgentType || 'subagent',
         })
         : (0, entity_1.buildEntityDescriptor)('Agent', agentCtx.agentId);
-    const subject = (0, entity_1.refOf)(subjectDescriptor);
-    const hops = agentCtx.isSubAgent
-        ? (0, hopChain_1.resolveSubAgentLineage)(input.sessionId, agentCtx.subAgentId, pluginDataDir)
-        : (0, hopChain_1.loadAgentHops)(input.sessionId, pluginDataDir);
-    // The direct endpoint's current transmission describes this tool hop; if
+    // The direct endpoint's current transmission describes this tool call; if
     // the host calls this hook without PromptSubmit, use only real action
     // data observed here because the endpoint rejects a blank current prompt.
+    // Reva records the chain of earlier actions server-side from each
+    // evaluation, so nothing about it is kept or sent from here.
     const serializedInput = JSON.stringify(input.toolInput);
-    const currentHopContent = mapping.command?.trim() || mapping.pattern?.trim() ||
+    const currentCallContent = mapping.command?.trim() || mapping.pattern?.trim() ||
         (serializedInput !== '{}' ? serializedInput : toolName);
     const resolvedModel = (0, kiroSession_1.resolveSessionModelWithSource)(input.sessionId, process.env, os.homedir(), pluginDataDir);
     const model = resolvedModel.model;
     (0, debug_1.debugLog)(`model=${(0, kiroSession_1.describeModel)(resolvedModel)}`);
     const machineId = (0, deviceId_1.resolveMachineId)(pluginDataDir);
-    const transmission = (0, context_1.buildTransmission)(currentHopContent, 'assistant', toolName);
-    const session = (0, turnCache_1.directSessionFromTurn)(input.sessionId, turn);
+    const transmission = (0, context_1.buildTransmission)(currentCallContent, 'assistant', toolName);
+    const session = (0, turnCache_1.directSessionFromTurn)(input.sessionId);
     // One request per resource; everything but the resource (and its
     // action) is shared, because it is the same tool call.
     const requests = toolMapping.mappings.map((each) => {
@@ -193,8 +190,6 @@ async function main() {
             resource: (0, entity_1.directSpecOf)(resourceDescriptor),
             context: (0, context_1.buildActionContext)(each, {
                 subagentIndex: subagentIndexOf.get(each),
-                hops,
-                conversationMessages: (0, turnCache_1.conversationFromTurn)(turn),
                 activeSessionCount,
                 currentSession,
                 model,
@@ -203,24 +198,9 @@ async function main() {
             transmission,
             session,
         };
-        return { mapping: each, request, traceparent: traceparentFor(each), resource: (0, entity_1.refOf)(resourceDescriptor) };
+        return { mapping: each, request, traceparent: traceparentFor(each) };
     });
-    // For each sub-agent this call starts, queue the lineage it should
-    // inherit — its own id isn't known yet (most hosts only reveal it on that
-    // subagent's own first tool call), so this is matched up later, in FIFO
-    // order, by resolveSubAgentLineage above. One entry per sub-agent, so a
-    // call that starts four leaves four lineages to bind.
-    for (const spawnRequest of requests.filter((r) => r.mapping.actionName === 'spawn')) {
-        const spawnHop = {
-            seq: hops.length + 1,
-            subject,
-            action: { name: 'spawn' },
-            resource: spawnRequest.resource,
-            time: new Date().toISOString(),
-        };
-        (0, hopChain_1.enqueuePendingSpawnLineage)(input.sessionId, hops, spawnHop, pluginDataDir);
-    }
-    (0, debug_1.debugLog)(`-> evaluating ${requests.length} resource(s) (tool=${toolName}${spawnIndices.length ? `, subagentIndex=${spawnIndices.join(',')}` : ''}, hops=${hops.length})`);
+    (0, debug_1.debugLog)(`-> evaluating ${requests.length} resource(s) (tool=${toolName}${spawnIndices.length ? `, subagentIndex=${spawnIndices.join(',')}` : ''})`);
     const aggregate = await (0, evaluateAll_1.evaluateAll)(cfg, requests, pluginDataDir, input.sessionId);
     const result = aggregate.result;
     (0, debug_1.debugLog)(`<- decision=${result.inactive ? 'inactive' : result.decision}${result.reason ? ` reason="${result.reason}"` : ''}`);

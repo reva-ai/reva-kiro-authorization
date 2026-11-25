@@ -3,11 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
-import { evaluate, ORIGIN_APP } from '../src/pdpClient';
+import { evaluate, ORIGIN_APP, summarizeTrace } from '../src/pdpClient';
 import { CedarRequest, RevaConfig } from '../src/types';
 
 const baseCfg: RevaConfig = {
-  pdpUrl: 'https://pdp.test/pdp/v2/ai/evaluation',
+  pdpUrl: 'https://pdp.test/pdp/ai/access/v1/ai/evaluation',
+  pluginVersionUrl: 'https://pdp.test/pdp/ai/access/v1/ai/plugin/version',
   authorization: 'test-token',
   agentId: 'agent-a',
   timeoutMs: 1000,
@@ -15,6 +16,7 @@ const baseCfg: RevaConfig = {
   policyStoreId: '',
   policyStoreHeader: 'policyStoreId',
   ingestionTimeoutMs: 1000,
+  summarizeUrl: 'https://pdp.test/pdp/ai/access/v1/ai/trace/summarize',
 };
 
 const baseRequest: CedarRequest = {
@@ -22,26 +24,14 @@ const baseRequest: CedarRequest = {
   principal: { type: 'User', id: 'alice@example.com' },
   action: { name: 'invokeTool' },
   resource: { type: 'Tool', id: 'WebFetch', properties: { name: 'WebFetch' } },
-  context: {
-    timestamp: 1,
-    prompt: 'find docs',
-    hops: [
-      {
-        seq: 1,
-        subject: { type: 'User', id: 'alice@example.com' },
-        action: { name: 'invokeAgent' },
-        resource: { type: 'Agent', id: 'agent-a' },
-        time: '2026-08-19T10:00:00Z',
-      },
-    ],
-  },
+  context: { timestamp: 1 },
   transmission: {
     promptKey: 'userQuery',
     userQuery: 'WebFetch',
     role: 'assistant',
     contentType: 'text/plain',
   },
-  session: { id: 'sess-1', turn: 1, startedAt: '2026-08-19T10:00:00Z' },
+  session: { id: 'sess-1' },
 };
 
 async function withFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {
@@ -236,4 +226,89 @@ test('a configured policy store id rides in the header on evaluation calls', asy
   );
   assert.equal(sent['policyStoreId'], 'store-42');
   assert.equal(sent['X-API-Token'], baseCfg.authorization);
+});
+
+// --- summarizeTrace ----------------------------------------------------------
+
+test('summarizeTrace POSTs trace_id/thread_id/output to the summarize URL; 202 is accepted', async () => {
+  let seen: { url: string; init: RequestInit } | undefined;
+  await withFetch(
+    (async (url: any, init: any) => {
+      seen = { url: String(url), init };
+      return new Response('', { status: 202 });
+    }) as any,
+    async () => {
+      const result = await summarizeTrace(baseCfg, { trace_id: 'a'.repeat(32), thread_id: 'sess-1', output: 'all done' });
+      assert.deepEqual(result, { ok: true, status: 202 });
+    },
+  );
+  assert.ok(seen);
+  assert.equal(seen.url, baseCfg.summarizeUrl);
+  assert.equal(seen.init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(seen.init.body)), {
+    trace_id: 'a'.repeat(32),
+    thread_id: 'sess-1',
+    output: 'all done',
+  });
+  const headers = seen.init.headers as Record<string, string>;
+  assert.equal(headers['X-API-Origin-App'], ORIGIN_APP);
+  assert.equal(headers['X-API-Token'], 'test-token');
+  assert.equal(headers['X-Reva-Thread-Id'], 'sess-1');
+  // Summarize has no principal in its body, so the user-scope verification
+  // that evaluation sends cannot succeed on it.
+  assert.equal('X-Reva-Verification-Codes' in headers, false);
+});
+
+test('summarizeTrace carries no hops, conversation or session history', async () => {
+  let body: any;
+  await withFetch(
+    (async (_url: any, init: any) => {
+      body = JSON.parse(String(init.body));
+      return new Response('', { status: 202 });
+    }) as any,
+    async () => {
+      await summarizeTrace(baseCfg, { trace_id: 'b'.repeat(32), thread_id: 'sess-1' });
+    },
+  );
+  assert.deepEqual(Object.keys(body).sort(), ['thread_id', 'trace_id']);
+});
+
+test('summarizeTrace reports a non-202 as not ok, with the status and a trimmed reason', async () => {
+  await withFetch(
+    (async () => new Response('x'.repeat(1000), { status: 400 })) as any,
+    async () => {
+      const result = await summarizeTrace(baseCfg, { trace_id: 'c'.repeat(32) });
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 400);
+      assert.equal(result.reason?.length, 300);
+    },
+  );
+});
+
+test('summarizeTrace never throws: a network failure comes back as ok:false', async () => {
+  await withFetch(
+    (async () => {
+      throw new Error('connect ECONNREFUSED');
+    }) as any,
+    async () => {
+      const result = await summarizeTrace(baseCfg, { trace_id: 'd'.repeat(32) });
+      assert.equal(result.ok, false);
+      assert.match(result.reason || '', /ECONNREFUSED/);
+    },
+  );
+});
+
+test('summarizeTrace gives up on a hung server instead of waiting out the evaluation timeout', async () => {
+  const started = Date.now();
+  await withFetch(
+    ((_url: any, init: any) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as any,
+    async () => {
+      const result = await summarizeTrace({ ...baseCfg, timeoutMs: 50 }, { trace_id: 'e'.repeat(32) });
+      assert.equal(result.ok, false);
+    },
+  );
+  assert.ok(Date.now() - started < 2000);
 });

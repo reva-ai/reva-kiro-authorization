@@ -14,6 +14,7 @@ import { RevaConfig } from '../src/types';
 
 const baseCfg: RevaConfig = {
   pdpUrl: 'https://pdp.test/evaluate',
+  pluginVersionUrl: 'https://pdp.test/pdp/ai/access/v1/ai/plugin/version',
   authorization: 'eval-token',
   agentId: 'aa-bb-cc-dd-ee-ff',
   timeoutMs: 1000,
@@ -21,6 +22,7 @@ const baseCfg: RevaConfig = {
   policyStoreId: '',
   policyStoreHeader: 'policyStoreId',
   ingestionTimeoutMs: 1000,
+  summarizeUrl: 'https://pdp.test/pdp/ai/access/v1/ai/trace/summarize',
 };
 
 async function withFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {

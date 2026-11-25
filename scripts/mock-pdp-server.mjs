@@ -140,11 +140,22 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    if (url.pathname === '/pdp/v2/ai/evaluation' && req.method === 'POST') {
+    if (url.pathname === '/pdp/ai/access/v1/ai/evaluation' && req.method === 'POST') {
       console.log('\n--- Reva mock PDP received a direct-AI request ---');
       console.log('headers:', JSON.stringify(redactedHeaders(req)));
       console.log('body:', JSON.stringify(parsed, null, 2));
       evaluationReply(res);
+      return;
+    }
+
+    // The Stop hook's end-of-turn call: Reva answers 202 and writes the trace
+    // summary out of band.
+    if (url.pathname === '/pdp/ai/access/v1/ai/trace/summarize' && req.method === 'POST') {
+      console.log('\n--- Reva mock PDP received a trace summarize request ---');
+      console.log('headers:', JSON.stringify(redactedHeaders(req)));
+      console.log('body:', JSON.stringify(parsed, null, 2));
+      res.writeHead(202);
+      res.end();
       return;
     }
 

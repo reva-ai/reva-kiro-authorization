@@ -8,36 +8,17 @@ import {
   osAttribute,
   serializeToolResponse,
 } from '../src/context';
-import { CedarActionMapping, CedarHop, DirectEvalConversationMessage } from '../src/types';
-
-const hops: CedarHop[] = [
-  {
-    seq: 1,
-    subject: { type: 'User', id: 'alice' },
-    action: { name: 'invokeAgent' },
-    resource: { type: 'Agent', id: 'agent-a' },
-    time: '2026-08-19T10:00:00Z',
-  },
-];
-const conversationMessages: DirectEvalConversationMessage[] = [
-  {
-    seq: 1,
-    role: 'user',
-    contentType: 'text/plain',
-    content: 'do the thing',
-    timestamp: '2026-08-19T10:00:00Z',
-  },
-];
+import { CedarActionMapping } from '../src/types';
 
 const CONTEXT_KEYS = [
-  'activeSessionCount', 'sessionId', 'sessionEntryPoint', 'sessionLastSeen', 'agentType', 'machineId', 'os', 'hops', 'timestamp',
+  'activeSessionCount', 'sessionId', 'sessionEntryPoint', 'sessionLastSeen', 'agentType', 'machineId', 'os', 'timestamp',
 ].sort();
 
-test('invokeAgent context is timestamp + hops + session scalars + agentType — no prompt (PDP-managed, not client-set)', () => {
+test('invokeAgent context is timestamp + session scalars + agentType — no prompt (PDP-managed, not client-set)', () => {
   const ctx = buildInvokeAgentContext();
   assert.deepEqual(Object.keys(ctx).sort(), CONTEXT_KEYS);
   assert.equal('prompt' in ctx, false);
-  assert.deepEqual(ctx.hops, []);
+  assert.equal('hops' in ctx, false);
   assert.equal(ctx.activeSessionCount, 0);
   assert.equal(ctx.sessionId, '');
   assert.equal(ctx.sessionEntryPoint, '');
@@ -62,11 +43,10 @@ test('invokeTool context is timestamp only, no prompt or session', () => {
   assert.equal('session' in ctx, false);
 });
 
-test('spawn context is scalar policy attributes plus canonical hops, with no nested session record', () => {
+test('spawn context is scalar policy attributes only, with no nested session record', () => {
   const mapping: CedarActionMapping = { actionName: 'spawn', resourceType: 'SubAgent', resourceId: 'Explore' };
-  const ctx = buildActionContext(mapping, { hops });
+  const ctx = buildActionContext(mapping);
   assert.deepEqual(Object.keys(ctx).sort(), [...CONTEXT_KEYS, 'subagentIndex'].sort());
-  assert.deepEqual(ctx.hops, hops);
   assert.equal('session' in ctx, false);
 });
 
@@ -184,12 +164,22 @@ test('spawn context uses the real subagentIndex when provided, defaults to 1 oth
   assert.equal(buildActionContext(mapping, { subagentIndex: 4 }).subagentIndex, 4);
 });
 
-test('active-turn evidence uses context.conversation and context.hops with object actions', () => {
-  const mapping: CedarActionMapping = { actionName: 'read', resourceType: 'File', resourceId: 'repo/a.ts' };
-  const ctx = buildActionContext(mapping, { hops, conversationMessages });
-  assert.deepEqual(ctx.hops, hops);
-  assert.deepEqual(ctx.conversation, { messages: conversationMessages });
-  assert.deepEqual(ctx.hops[0].action, { name: 'invokeAgent' });
+test('no action ever carries hops or conversation — Reva records that history itself', () => {
+  const actions: CedarActionMapping[] = [
+    { actionName: 'invokeTool', resourceType: 'Tool', resourceId: 'WebFetch' },
+    { actionName: 'spawn', resourceType: 'SubAgent', resourceId: 'Explore' },
+    { actionName: 'executeBash', resourceType: 'File', resourceId: 'repo/a.ts', command: 'ls' },
+    { actionName: 'read', resourceType: 'File', resourceId: 'repo/a.ts' },
+    { actionName: 'write', resourceType: 'File', resourceId: 'repo/a.ts' },
+    { actionName: 'edit', resourceType: 'File', resourceId: 'repo/a.ts' },
+    { actionName: 'glob', resourceType: 'Directory', resourceId: 'repo' },
+    { actionName: 'grep', resourceType: 'Directory', resourceId: 'repo' },
+  ];
+  for (const mapping of actions) {
+    const ctx = buildActionContext(mapping, { activeSessionCount: 1 });
+    assert.equal('hops' in ctx, false, `${mapping.actionName} must not send hops`);
+    assert.equal('conversation' in ctx, false, `${mapping.actionName} must not send conversation`);
+  }
 });
 
 test('transmission uses canonical dynamic userQuery selector and semantic role', () => {

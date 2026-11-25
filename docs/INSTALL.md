@@ -225,11 +225,12 @@ tail -f ~/.kiro/reva-governance/debug.log
 
 `install-hooks` sets up both hosts:
 
-- **Kiro IDE** → five files in `~/.kiro/hooks/` (`reva-session-start.json`,
+- **Kiro IDE** → six files in `~/.kiro/hooks/` (`reva-session-start.json`,
   `reva-prompt-submit.json`, `reva-pre-tool-use.json`, `reva-post-tool-use.json`,
-  `reva-session-end.json`). They apply to every project. Use `--project <path>` to install into
-  one project instead. An older `reva-stop.json` is removed — `Stop` fires after every reply,
-  not when a session closes.
+  `reva-session-end.json`, `reva-stop.json`). They apply to every project. Use
+  `--project <path>` to install into one project instead. `reva-stop.json` reports each
+  finished reply to Reva; an older one that only touched the session count is replaced by it.
+  The kiro-cli agent gets the matching `stop` hook.
 - **kiro-cli** → a `hooks` block in `~/.kiro/agents/reva-governance.json`. A new agent is
   created with the `shell` and `use_subagent` tools; an existing one only has its `hooks`
   field changed. Use `--agent <name>` to add the hooks to an agent you already use.
@@ -322,7 +323,7 @@ entity-type ids are stored per host, store and token.
 npm run uninstall-hooks
 ```
 
-This removes the five `reva-*.json` files from `~/.kiro/hooks/` and the Reva hooks from the
+This removes the six `reva-*.json` files from `~/.kiro/hooks/` and the Reva hooks from the
 kiro-cli agent. Local state stays in `~/.kiro/reva-governance` (or your `REVA_DATA_DIR`) —
 delete that folder to remove it. Nothing was written to your repositories.
 

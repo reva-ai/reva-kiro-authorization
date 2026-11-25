@@ -75,7 +75,7 @@ if (eff('REVA_POLICY_STORE_ID')) {
 }
 try {
   fs.mkdirSync(dataDir, { recursive: true });
-  ok('data directory is writable — turn/hop/spawn state will persist');
+  ok('data directory is writable — turn/spawn state will persist');
 } catch {
   warn('data directory is NOT writable — every hook call will start from turn 1');
 }
@@ -231,21 +231,41 @@ if (token) {
 console.log('\nRegistration');
 const ideDir = path.join(os.homedir(), '.kiro', 'hooks');
 const ideFiles = fs.existsSync(ideDir) ? fs.readdirSync(ideDir).filter((f) => f.startsWith('reva-') && f.endsWith('.json')) : [];
-// reva-stop.json is what earlier versions wrote in place of reva-session-end.json.
-if (ideFiles.includes('reva-stop.json')) warn('Kiro IDE: reva-stop.json is from an older version — run: npm run install-hooks');
-if (ideFiles.length === 5 && ideFiles.includes('reva-session-end.json')) ok(`Kiro IDE: 5 hooks in ${ideDir}`);
-else if (ideFiles.length) warn(`Kiro IDE: only ${ideFiles.length}/5 hooks in ${ideDir}`);
-else warn(`Kiro IDE: no hooks in ${ideDir} — run: npm run install-hooks`);
+// reva-stop.json: earlier versions pointed it at sessionEnd.js (the session count);
+// it now reports the finished turn to Reva through stop.js. Same file name, so
+// the file's own command says which build wrote it.
+const stopFile = path.join(ideDir, 'reva-stop.json');
+let ideStopIsStale = false;
+if (ideFiles.includes('reva-stop.json')) {
+  try {
+    ideStopIsStale = !String(fs.readFileSync(stopFile, 'utf8')).includes('stop.js');
+  } catch { /* unreadable: the count check below still reports it */ }
+}
+if (ideStopIsStale) {
+  warn('Kiro IDE: reva-stop.json is from an older version — run: npm run install-hooks');
+} else if (ideFiles.length === 6 && ideFiles.includes('reva-session-end.json') && ideFiles.includes('reva-stop.json')) {
+  ok(`Kiro IDE: 6 hooks in ${ideDir}`);
+} else if (ideFiles.length) {
+  warn(`Kiro IDE: only ${ideFiles.length}/6 hooks in ${ideDir}`);
+  if (!ideFiles.includes('reva-stop.json')) info('Missing the Stop hook that closes a turn\'s trace — run: npm run install-hooks');
+} else {
+  warn(`Kiro IDE: no hooks in ${ideDir} — run: npm run install-hooks`);
+}
 
 const agentsDir = path.join(os.homedir(), '.kiro', 'agents');
 const cliAgents = [];
 const unenforcedAgents = [];
+const agentsMissingStop = [];
 if (fs.existsSync(agentsDir)) {
   for (const f of fs.readdirSync(agentsDir).filter((f) => f.endsWith('.json'))) {
     try {
       const cfg = JSON.parse(fs.readFileSync(path.join(agentsDir, f), 'utf8'));
       const reva = Object.values(cfg.hooks || {}).flat().filter((h) => String(h?.command || '').includes('dist/src'));
       if (reva.length) cliAgents.push(`${path.basename(f, '.json')} (${reva.length} hooks)`);
+      // A Reva stop hook that runs stop.js closes each turn's trace; without
+      // it (an install from before it existed) nothing is summarized.
+      const hasStop = (cfg.hooks?.stop || []).some((h) => String(h?.command || '').includes('stop.js'));
+      if (reva.length && !hasStop) agentsMissingStop.push(path.basename(f, '.json'));
       // On Windows a hook without the exit-code suffix cannot block: PowerShell
       // turns its exit 2 into 1 and kiro-cli runs the tool anyway.
       if (process.platform === 'win32' && reva.some((h) => !String(h.command).includes('$LASTEXITCODE'))) {
@@ -256,6 +276,10 @@ if (fs.existsSync(agentsDir)) {
 }
 if (cliAgents.length) ok(`kiro-cli: ${cliAgents.join(', ')}`);
 else warn('kiro-cli: no agent config carries Reva hooks — run: npm run install-hooks');
+if (agentsMissingStop.length) {
+  warn(`kiro-cli: ${agentsMissingStop.join(', ')} have no Reva stop hook — turns are never summarized`);
+  info('Fix: npm run install-hooks -- --cli');
+}
 if (unenforcedAgents.length) {
   bad(`kiro-cli: hooks in ${unenforcedAgents.join(', ')} lack "; exit $LASTEXITCODE" — denies will NOT block on Windows`);
   info('Fix: npm run install-hooks -- --cli');
@@ -265,6 +289,7 @@ if (unenforcedAgents.length) {
 console.log('\nEnforcement (what a deny actually does here)');
 info('Kiro IDE  PreToolUse/UserPromptSubmit : exit 2 + stderr BLOCKS');
 info('Kiro IDE  PostToolUse                 : ignored (audit only)');
+info('Kiro IDE  Stop                        : reports the finished turn (never blocks)');
 
 if (!probeCli) {
   info('kiro-cli  preToolUse/userPromptSubmit : exit 2 BLOCKS (re-run with --probe-cli to test)');

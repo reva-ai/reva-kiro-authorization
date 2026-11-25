@@ -5,9 +5,8 @@ import { loadConfig, resolveDataDir } from './config';
 import { debugLog } from './debug';
 import { resolveMachineId } from './deviceId';
 import { applyKiroCliEnv } from './kiroSettings';
-import { buildEntityDescriptor, directSpecOf, refOf } from './entity';
+import { buildEntityDescriptor, directSpecOf } from './entity';
 import { evaluateAll } from './evaluateAll';
-import { enqueuePendingSpawnLineage, loadAgentHops, resolveSubAgentLineage } from './hopChain';
 import { resolveAgentContext, resolveUserEmail } from './identity';
 import { MAX_RESOURCES_PER_CALL, mapToolCall, subAgentPrompts } from './mapping';
 import { triggerMcpIngestionForInvokedServer } from './mcpIngestionTrigger';
@@ -18,8 +17,8 @@ import { reserveSpawnIndices } from './spawnCounter';
 import { deriveSpanId, toolSpanKey, traceparentHeader } from './trace';
 import { emitDecision, hostLabel, normalizeInput, blocksAt } from './host';
 import { resolveSessionSurface } from './surface';
-import { CedarActionMapping, CedarEntityDescriptor, CedarHop, CedarRequest, PdpResult, RevaHost } from './types';
-import { conversationFromTurn, directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId } from './turnCache';
+import { CedarActionMapping, CedarEntityDescriptor, CedarRequest, PdpResult, RevaHost } from './types';
+import { directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId } from './turnCache';
 
 // PreToolUse / preToolUse — the one gate that can actually stop an action
 // before it runs. All host-specific I/O (which trigger name arrived, where
@@ -150,17 +149,14 @@ async function main(): Promise<void> {
         agentType: agentCtx.subAgentType || 'subagent',
       })
     : buildEntityDescriptor('Agent', agentCtx.agentId);
-  const subject = refOf(subjectDescriptor);
 
-  const hops: CedarHop[] = agentCtx.isSubAgent
-    ? resolveSubAgentLineage(input.sessionId, agentCtx.subAgentId!, pluginDataDir)
-    : loadAgentHops(input.sessionId, pluginDataDir);
-
-  // The direct endpoint's current transmission describes this tool hop; if
+  // The direct endpoint's current transmission describes this tool call; if
   // the host calls this hook without PromptSubmit, use only real action
   // data observed here because the endpoint rejects a blank current prompt.
+  // Reva records the chain of earlier actions server-side from each
+  // evaluation, so nothing about it is kept or sent from here.
   const serializedInput = JSON.stringify(input.toolInput);
-  const currentHopContent =
+  const currentCallContent =
     mapping.command?.trim() || mapping.pattern?.trim() ||
     (serializedInput !== '{}' ? serializedInput : toolName);
 
@@ -168,8 +164,8 @@ async function main(): Promise<void> {
   const model = resolvedModel.model;
   debugLog(`model=${describeModel(resolvedModel)}`);
   const machineId = resolveMachineId(pluginDataDir);
-  const transmission = buildTransmission(currentHopContent, 'assistant', toolName);
-  const session = directSessionFromTurn(input.sessionId, turn);
+  const transmission = buildTransmission(currentCallContent, 'assistant', toolName);
+  const session = directSessionFromTurn(input.sessionId);
 
   // One request per resource; everything but the resource (and its
   // action) is shared, because it is the same tool call.
@@ -187,8 +183,6 @@ async function main(): Promise<void> {
       resource: directSpecOf(resourceDescriptor),
       context: buildActionContext(each, {
         subagentIndex: subagentIndexOf.get(each),
-        hops,
-        conversationMessages: conversationFromTurn(turn),
         activeSessionCount,
         currentSession,
         model,
@@ -197,29 +191,13 @@ async function main(): Promise<void> {
       transmission,
       session,
     };
-    return { mapping: each, request, traceparent: traceparentFor(each), resource: refOf(resourceDescriptor) };
+    return { mapping: each, request, traceparent: traceparentFor(each) };
   });
-
-  // For each sub-agent this call starts, queue the lineage it should
-  // inherit — its own id isn't known yet (most hosts only reveal it on that
-  // subagent's own first tool call), so this is matched up later, in FIFO
-  // order, by resolveSubAgentLineage above. One entry per sub-agent, so a
-  // call that starts four leaves four lineages to bind.
-  for (const spawnRequest of requests.filter((r) => r.mapping.actionName === 'spawn')) {
-    const spawnHop: CedarHop = {
-      seq: hops.length + 1,
-      subject,
-      action: { name: 'spawn' },
-      resource: spawnRequest.resource,
-      time: new Date().toISOString(),
-    };
-    enqueuePendingSpawnLineage(input.sessionId, hops, spawnHop, pluginDataDir);
-  }
 
   debugLog(
     `-> evaluating ${requests.length} resource(s) (tool=${toolName}${
       spawnIndices.length ? `, subagentIndex=${spawnIndices.join(',')}` : ''
-    }, hops=${hops.length})`,
+    })`,
   );
   const aggregate = await evaluateAll(cfg, requests, pluginDataDir, input.sessionId);
   const result = aggregate.result;

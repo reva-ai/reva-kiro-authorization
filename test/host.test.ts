@@ -131,3 +131,21 @@ test('SessionEnd (Kiro desktop app, kiro-cli V3) is recognized as its own event'
   // A Stop from an install made before SessionEnd was registered stays a Stop.
   assert.deepEqual(detectHost({ ...payload, hook_event_name: 'Stop' }, 'SessionEnd', {}), { host: 'kiro-ide', event: 'Stop' });
 });
+
+// --- Stop ----------------------------------------------------------------------
+
+test('kiro-cli stop: recognized as a Stop, with the reply read from assistant_response', () => {
+  const payload = { hook_event_name: 'stop', cwd: '/repo', assistant_response: 'Done — 3 files changed.' };
+  assert.deepEqual(detectHost(payload, 'Stop', { KIRO_SESSION_ID: 'cli-session-1' } as any), { host: 'kiro-cli', event: 'Stop' });
+  const n = normalizeInput(payload, 'Stop', { KIRO_SESSION_ID: 'cli-session-1' } as any);
+  assert.equal(n.host, 'kiro-cli');
+  assert.equal(n.event, 'Stop');
+  assert.equal(n.sessionId, 'cli-session-1');
+  assert.equal(n.assistantResponse, 'Done — 3 files changed.');
+});
+
+test('Kiro IDE Stop without a reply field has no assistantResponse, and a non-string one is ignored', () => {
+  const ide = { session_id: 'sess_1', hook_event_name: 'Stop', cwd: '/repo' };
+  assert.equal(normalizeInput(ide, 'Stop', {}).assistantResponse, undefined);
+  assert.equal(normalizeInput({ ...ide, assistant_response: { text: 'x' } }, 'Stop', {}).assistantResponse, undefined);
+});

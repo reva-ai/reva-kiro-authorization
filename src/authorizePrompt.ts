@@ -1,13 +1,14 @@
 import * as os from 'node:os';
 import { getActiveSessionCount, markSessionActive } from './activeSessions';
 import { loadConfig, resolveDataDir } from './config';
+import { truncatePrompt } from './context';
 import { debugLog } from './debug';
 import { resolveMachineId } from './deviceId';
 import { applyKiroCliEnv } from './kiroSettings';
-import { startTurnHops } from './hopChain';
 import { resolveUserEmail } from './identity';
 import { buildInvokeAgentRequest } from './invokeAgent';
 import { evaluate } from './pdpClient';
+import { readPluginVersionGate } from './pluginVersionGate';
 import { resetSpawnCounter } from './spawnCounter';
 import { claimSubAgentPrompt } from './subAgentPrompts';
 import { describeModel, resolveSessionModelWithSource } from './kiroSession';
@@ -18,8 +19,8 @@ import { buildSessionContext, deriveSpanId, traceparentHeader } from './trace';
 import { emitDecision, hostLabel, blocksAt } from './host';
 import { normalizeInput } from './host';
 import { resolveSessionSurface } from './surface';
-import { CedarHop, PdpResult, RevaHost } from './types';
-import { directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId, startTurn, truncatePrompt } from './turnCache';
+import { PdpResult, RevaHost } from './types';
+import { directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId, startTurn } from './turnCache';
 
 // UserPromptSubmit (IDE) / userPromptSubmit (kiro-cli) — the top-level
 // "a human handed the agent an instruction" gate, evaluated as invokeAgent.
@@ -53,6 +54,19 @@ async function main(): Promise<void> {
   debugLog(`host=${hostLabel(host)} enforcing=${blocksAt(host, 'UserPromptSubmit')}`);
   const cfg = loadConfig();
   const pluginDataDir = resolveDataDir();
+
+  // Evaluate may have latched an outdated plugin. Deny here before evaluate so
+  // the turn stops at UserPromptSubmit. SessionStart does not call getVersion.
+  const versionGate = readPluginVersionGate(input.sessionId, pluginDataDir);
+  if (versionGate.status === 'blocked') {
+    debugLog(`UserPromptSubmit: plugin version blocked — ${versionGate.reason}`);
+    writeDecision({
+      decision: 'deny',
+      reason: versionGate.reason,
+      errorType: versionGate.errorType,
+      status: 403,
+    });
+  }
 
   const userEmail = resolveUserEmail();
   const prompt = input.prompt ? truncatePrompt(input.prompt) : '';
@@ -91,13 +105,13 @@ async function main(): Promise<void> {
   const isSubAgentPrompt = claimSubAgentPrompt(input.sessionId, input.prompt, pluginDataDir);
 
   // Otherwise this plugin owns the turn boundary itself: mint a fresh TRACE
-  // id here and persist it (with the prompt text) so every PreToolUse call
-  // this turn produces — separate, stateless hook processes — reads the
+  // id here and persist it (the prompt text is not stored) so every PreToolUse
+  // call this turn produces — separate, stateless hook processes — reads the
   // same value back instead of each rolling its own. Spans are derived per
   // operation from that trace (see trace.ts).
   const turn = isSubAgentPrompt
     ? loadOrStartTurn(input.sessionId, pluginDataDir)
-    : startTurn(input.sessionId, input.prompt, pluginDataDir);
+    : startTurn(input.sessionId, pluginDataDir);
   if (isSubAgentPrompt) {
     debugLog('prompt is a sub-agent\'s instructions — same turn, sub-agent count and trace kept');
   } else {
@@ -122,7 +136,7 @@ async function main(): Promise<void> {
     userEmail,
     cfg.agentId,
     prompt,
-    directSessionFromTurn(input.sessionId, turn),
+    directSessionFromTurn(input.sessionId),
     activeSessionCount,
     currentSession,
     model,
@@ -132,21 +146,6 @@ async function main(): Promise<void> {
   debugLog(`-> invokeAgent as ${userEmail} on Agent:${cfg.agentId} trace=${traceId}`);
   const result = await evaluate(cfg, request, traceparent, pluginDataDir, input.sessionId);
   debugLog(`<- decision=${result.decision}${result.reason ? ` reason="${result.reason}"` : ''}`);
-
-  // Record this invokeAgent as the base of this turn's hop chain regardless
-  // of the decision, so a subsequent tool call (if the turn proceeds) has
-  // it to build on — mirrors how the spawn counter also advances on every
-  // attempt, not just approved ones.
-  // A sub-agent's prompt keeps the turn's existing chain (which already
-  // holds the user's invokeAgent and the spawns) instead of restarting it.
-  const invokeAgentHop: CedarHop = {
-    seq: 1,
-    subject: request.subject,
-    action: { name: 'invokeAgent' },
-    resource: request.resource,
-    time: new Date().toISOString(),
-  };
-  if (!isSubAgentPrompt) startTurnHops(input.sessionId, invokeAgentHop, pluginDataDir);
 
   writeDecision(result);
 }

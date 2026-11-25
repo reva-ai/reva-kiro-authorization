@@ -1,5 +1,8 @@
 export interface RevaConfig {
   pdpUrl: string;
+  // GET the minimum supported / current version window for coding-agent
+  // plugin protocol versioning.
+  pluginVersionUrl: string;
   // Sent as the X-API-Token header on BOTH evaluation and ingestion calls —
   // one Reva auth token authenticates everything this plugin does.
   authorization: string;
@@ -25,6 +28,9 @@ export interface RevaConfig {
   // waiting the same 25s default for), but the same `authorization` token.
   ingestionUrl: string;
   ingestionTimeoutMs: number;
+  // POST that closes one prompt trace after the turn finishes, so Reva can
+  // write the trace summary from the actions it recorded (see stop.ts).
+  summarizeUrl: string;
 }
 
 // Which of Kiro's two hook systems this invocation came from. They are not
@@ -53,6 +59,9 @@ export interface NormalizedHookInput {
   toolName?: string;
   toolInput: Record<string, any>;
   toolResponse?: unknown;
+  // Stop only: the assistant's final reply for the turn. kiro-cli sends it
+  // as `assistant_response`; see host.ts for what is known about the IDE.
+  assistantResponse?: string;
   // Absent on both hosts today — see host.ts's normalizeInput comment.
   subAgentId?: string;
   subAgentType?: string;
@@ -109,8 +118,8 @@ export interface KiroCliHookInput {
   assistant_response?: string;
 }
 
-// A bare reference to an entity — used for active-turn hops and as the base
-// of direct-AI subject/principal/resource specs.
+// A bare reference to an entity — the base of direct-AI
+// subject/principal/resource specs.
 export interface CedarEntityRef {
   type: string;
   id: string;
@@ -139,43 +148,22 @@ export interface CedarEntityDescriptor {
   parents: CedarEntityRef[];
 }
 
-// One step in the delegation chain leading up to (but not including) the
-// current request's own action — see hopChain.ts for how this is tracked
-// across the stateless per-hook-call processes.
-export interface CedarHop {
-  seq: number;
-  subject: CedarEntityRef;
-  action: { name: string };
-  resource: CedarEntityRef;
-  time: string;
-}
-
-export interface DirectEvalConversationMessage {
-  seq: number;
-  role: 'user' | 'assistant' | 'tool';
-  contentType: string;
-  content: string;
-  timestamp: string;
-}
-
 export interface DirectEvalTransmission {
   promptKey: 'userQuery';
   userQuery: string;
   role: 'user' | 'assistant' | 'tool';
   contentType: string;
-  // PostToolUse only: the tool's result. userQuery stays the same current-hop
+  // PostToolUse only: the tool's result. userQuery stays the same current-call
   // prompt PreToolUse sent, so the pre/post pair shows one prompt.
   response?: string;
 }
 
-// Metadata-only sessions are explicitly supported by the PDP. The plugin
-// deliberately omits `messages`: its current hooks do not observe a reliable
-// final assistant response for every completed turn, so adding history would
-// fabricate evidence or create invalid request/response pairs.
+// The session id only. Reva owns turn numbers and the earlier prompts of the
+// session (`session.messages`) for guardrail evaluators; sending those, or
+// `context.hops` / `context.conversation`, would stop Reva attaching what it
+// recorded itself.
 export interface DirectEvalSession {
   id: string;
-  turn: number;
-  startedAt: string;
 }
 
 export interface CedarRequest {
@@ -183,7 +171,7 @@ export interface CedarRequest {
   // for tool calls, User for invokeAgent itself).
   subject: DirectEvalEntitySpec;
   // principal: the human who ultimately initiated this chain — always the
-  // resolved user, even many hops/subagents deep. Equal to `subject` only
+  // resolved user, even through sub-agents. Equal to `subject` only
   // for invokeAgent, where the human IS the one directly acting.
   principal: DirectEvalEntitySpec;
   action: { name: string };

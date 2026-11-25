@@ -42,7 +42,6 @@ const deviceId_1 = require("./deviceId");
 const kiroSettings_1 = require("./kiroSettings");
 const entity_1 = require("./entity");
 const evaluateAll_1 = require("./evaluateAll");
-const hopChain_1 = require("./hopChain");
 const identity_1 = require("./identity");
 const mapping_1 = require("./mapping");
 const kiroSession_1 = require("./kiroSession");
@@ -101,12 +100,9 @@ async function main() {
             agentType: agentCtx.subAgentType || 'subagent',
         })
         : (0, entity_1.buildEntityDescriptor)('Agent', agentCtx.agentId);
-    const hops = agentCtx.isSubAgent
-        ? (0, hopChain_1.resolveSubAgentLineage)(input.sessionId, agentCtx.subAgentId, pluginDataDir)
-        : (0, hopChain_1.loadAgentHops)(input.sessionId, pluginDataDir);
-    // Same current-hop prompt PreToolUse puts in transmission.userQuery.
+    // Same current-call prompt PreToolUse puts in transmission.userQuery.
     const serializedInput = JSON.stringify(input.toolInput);
-    const currentHopContent = mapping.command?.trim() || mapping.pattern?.trim() ||
+    const currentCallContent = mapping.command?.trim() || mapping.pattern?.trim() ||
         (serializedInput !== '{}' ? serializedInput : toolName);
     const resolvedModel = (0, kiroSession_1.resolveSessionModelWithSource)(input.sessionId, process.env, os.homedir(), pluginDataDir);
     const model = resolvedModel.model;
@@ -115,8 +111,8 @@ async function main() {
     // userQuery matches PreToolUse; the tool result is transmission.response,
     // not closed Cedar context, so the evaluate payload carries it without a
     // schema change.
-    const transmission = (0, context_1.buildToolResponseTransmission)(input.toolResponse, currentHopContent);
-    const session = (0, turnCache_1.directSessionFromTurn)(input.sessionId, turn);
+    const transmission = (0, context_1.buildToolResponseTransmission)(input.toolResponse, currentCallContent);
+    const session = (0, turnCache_1.directSessionFromTurn)(input.sessionId);
     // Same resources PreToolUse evaluated, one request each.
     const requests = toolMapping.mappings.map((each) => {
         const request = {
@@ -125,8 +121,6 @@ async function main() {
             action: { name: each.actionName },
             resource: (0, entity_1.directSpecOf)((0, entity_1.buildEntityDescriptor)(each.resourceType, each.resourceId, each.resourceProperties, each.resourceParents)),
             context: (0, context_1.buildActionContext)(each, {
-                hops,
-                conversationMessages: (0, turnCache_1.conversationFromTurn)(turn),
                 activeSessionCount,
                 currentSession,
                 model,
@@ -137,7 +131,7 @@ async function main() {
         };
         return { mapping: each, request, traceparent: traceparentFor(each) };
     });
-    (0, debug_1.debugLog)(`-> post ${toolName}: ${requests.map((r) => `${r.mapping.actionName}:${r.mapping.resourceId}`).join(', ')} (hops=${hops.length})`);
+    (0, debug_1.debugLog)(`-> post ${toolName}: ${requests.map((r) => `${r.mapping.actionName}:${r.mapping.resourceId}`).join(', ')}`);
     const aggregate = await (0, evaluateAll_1.evaluateAll)(cfg, requests, pluginDataDir, input.sessionId);
     const result = aggregate.result;
     (0, debug_1.debugLog)(`<- post decision=${result.inactive ? 'inactive' : result.decision}${result.reason ? ` reason="${result.reason}"` : ''}`);

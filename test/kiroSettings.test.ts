@@ -85,7 +85,7 @@ test('loadConfig reads REVA_AUTH_TOKEN from cli.json when process env has none',
     });
     const cfg = loadConfig({}, file);
     assert.equal(cfg.authorization, 'cli-json-token');
-    assert.equal(cfg.pdpUrl, 'http://localhost:8787/pdp/v2/ai/evaluation');
+    assert.equal(cfg.pdpUrl, 'http://localhost:8787/pdp/ai/access/v1/ai/evaluation');
     assert.equal(cfg.agentId, 'kiro-FromCliJsonxxxxxxxxxxxx');
   });
 });

@@ -19,7 +19,7 @@ Plugin id: `reva-governance`. One codebase serves both Kiro hosts — the **Kiro
 
 ## How it works
 
-The plugin hooks five points in a Kiro session:
+The plugin hooks six points in a Kiro session:
 
 | When | Kiro IDE trigger | kiro-cli trigger | What happens |
 | --- | --- | --- | --- |
@@ -27,6 +27,7 @@ The plugin hooks five points in a Kiro session:
 | You submit a prompt | `UserPromptSubmit` | `userPromptSubmit` | Checks whether you're allowed to invoke the coding agent at all this turn. Also rechecks Kiro's `mcp.json` files roughly every 15 minutes, so a server added mid-session doesn't wait until your next session to register. |
 | Before any tool call | `PreToolUse` | `preToolUse` | Checks whether that specific action is allowed, and blocks it if not. The first call to a tool of an MCP server that isn't registered yet also registers that server in the background. |
 | After a tool call completes | `PostToolUse` | `postToolUse` | Re-evaluates with the actual result, for policies that care what a command returned. Audit only — the tool has already run. |
+| Kiro finishes a reply | `Stop` | `stop` | Tells Reva the turn's trace is complete, with the assistant's final reply when Kiro provides it, so Reva can write the trace summary. Never blocks. |
 | A session closes | `SessionEnd` (Kiro IDE and kiro-cli V3) | — | Removes the session from the local active-session count. No Reva request. |
 
 **How `activeSessionCount` drops a closed session.** Kiro does not reliably fire `SessionEnd`
@@ -93,8 +94,9 @@ lies outside the repository root, the plugin falls back to the absolute path.
 
 ## What it sends
 
-This plugin transmits **the text of your prompts, your shell commands, and the contents of
-files being written or read** to your Reva tenant for evaluation.
+This plugin transmits **the text of your prompts, your shell commands, the contents of files
+being written or read, and the assistant's final reply for each turn** to your Reva tenant —
+the first three for evaluation, the reply to close the turn's trace.
 
 That is the point — a policy cannot judge an action it cannot see — but it is a real change
 to your environment, and anyone rolling this out to a team should read the field-by-field
