@@ -3,7 +3,10 @@ import { mergeEnvWithKiroCli } from './kiroSettings';
 import { RevaConfig } from './types';
 
 const DEFAULT_TIMEOUT_MS = 25000;
-const PDP_PATH = '/pdp/v2/ai/evaluation';
+const PDP_PATH = '/pdp/ai/access/v1/ai/evaluation';
+const PLUGIN_VERSION_PATH = '/pdp/ai/access/v1/ai/plugin/version';
+// Closes one prompt trace after the turn's last reply (see stop.ts).
+const SUMMARIZE_PATH = '/pdp/ai/access/v1/ai/trace/summarize';
 const INGESTION_PATH = '/ingestion/v2';
 
 //  REVA_HOST overrides this.
@@ -96,6 +99,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, settingsPath?: 
   // Paths are fixed in code.
   const host = effective.REVA_HOST?.trim() || DEFAULT_HOST;
   const pdpUrl = urlFromHost(host, PDP_PATH);
+  const pluginVersionUrl = urlFromHost(host, PLUGIN_VERSION_PATH);
+  const summarizeUrl = urlFromHost(host, SUMMARIZE_PATH);
   const ingestionUrl = urlFromHost(host, INGESTION_PATH);
 
   // One token authenticates everything this plugin does — evaluation AND
@@ -139,6 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, settingsPath?: 
 
   return {
     pdpUrl,
+    pluginVersionUrl,
     authorization,
     agentId,
     // Optional. Unset (the default) sends no header at all, which is how
@@ -150,5 +156,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, settingsPath?: 
     timeoutMs: Number(effective.REVA_PDP_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
     ingestionUrl,
     ingestionTimeoutMs: Number(effective.REVA_INGESTION_TIMEOUT_MS) || DEFAULT_INGESTION_TIMEOUT_MS,
+    summarizeUrl,
   };
 }

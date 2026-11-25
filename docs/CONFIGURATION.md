@@ -17,7 +17,7 @@ file — and also why a stale variable left in your environment silently wins.
 | `REVA_HOST` | no | `api.reva.ai` | Your Reva tenant's API host. |
 | `REVA_DEBUG` | no | off | Set to `1` to append each decision, timestamped, to `debug.log` in the data directory. Never written to stderr, so a deny reason shown by Kiro stays clean. |
 | `REVA_DEBUG_LOG_FILE` | no | `<REVA_DATA_DIR>/debug.log` | A different path for the debug log. |
-| `REVA_DATA_DIR` | no | `~/.kiro/reva-governance` | Where turn, hop, spawn and session state, the account cache and the entity-type cache are kept. |
+| `REVA_DATA_DIR` | no | `~/.kiro/reva-governance` | Where turn, spawn and session state, the account cache and the entity-type cache are kept. |
 | `REVA_PDP_TIMEOUT_MS` | no | `25000` | Timeout for an evaluation call. On timeout the plugin fails **closed** — the action is blocked. |
 | `REVA_INGESTION_TIMEOUT_MS` | no | `5000` | Timeout for ingestion calls. Deliberately much shorter — ingestion is best-effort and never gates an action. |
 | `REVA_POLICY_STORE_ID` | no | unset | Sent as a request header on evaluation and ingestion when set. Unset means Reva resolves the store from the token, which is the normal case. |
@@ -90,7 +90,8 @@ username**, which is almost certainly not a provisioned user and will be denied 
 `REVA_HOST` accepts a bare host (`api.example.reva.ai`) or one with a scheme, which is
 stripped. Trailing slashes are removed. Paths are fixed in code:
 
-- evaluation: `/pdp/v2/ai/evaluation`
+- evaluation: `/pdp/ai/access/v1/ai/evaluation`
+- trace summarize (the `Stop` hook, once per finished reply): `/pdp/ai/access/v1/ai/trace/summarize`
 - ingestion: `/ingestion/v2`
 
 The scheme is **HTTPS for every host** except `localhost`, `127.0.0.1` and `[::1]`, which

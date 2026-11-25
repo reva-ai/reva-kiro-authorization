@@ -84,8 +84,8 @@ interface IngestionCacheEntry {
 }
 
 // No fallback: only ever writes inside REVA_DATA_DIR — a plugin-owned env
-// var, not a Kiro-provided one (see config.ts and hopChain.ts's comment for
-// why). Without it, there is nothing honest to write to — every
+// var, not a Kiro-provided one (see config.ts and deviceId.ts's resolveDataDir
+// for why). Without it, there is nothing honest to write to — every
 // change-signature check just always reports "changed," so ingestion is
 // simply attempted fresh on every session rather than caching anything.
 function cacheDir(pluginDataDir?: string): string | undefined {

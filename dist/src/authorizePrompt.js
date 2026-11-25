@@ -36,13 +36,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const os = __importStar(require("node:os"));
 const activeSessions_1 = require("./activeSessions");
 const config_1 = require("./config");
+const context_1 = require("./context");
 const debug_1 = require("./debug");
 const deviceId_1 = require("./deviceId");
 const kiroSettings_1 = require("./kiroSettings");
-const hopChain_1 = require("./hopChain");
 const identity_1 = require("./identity");
 const invokeAgent_1 = require("./invokeAgent");
 const pdpClient_1 = require("./pdpClient");
+const pluginVersionGate_1 = require("./pluginVersionGate");
 const spawnCounter_1 = require("./spawnCounter");
 const subAgentPrompts_1 = require("./subAgentPrompts");
 const kiroSession_1 = require("./kiroSession");
@@ -84,8 +85,20 @@ async function main() {
     (0, debug_1.debugLog)(`host=${(0, host_1.hostLabel)(host)} enforcing=${(0, host_1.blocksAt)(host, 'UserPromptSubmit')}`);
     const cfg = (0, config_1.loadConfig)();
     const pluginDataDir = (0, config_1.resolveDataDir)();
+    // Evaluate may have latched an outdated plugin. Deny here before evaluate so
+    // the turn stops at UserPromptSubmit. SessionStart does not call getVersion.
+    const versionGate = (0, pluginVersionGate_1.readPluginVersionGate)(input.sessionId, pluginDataDir);
+    if (versionGate.status === 'blocked') {
+        (0, debug_1.debugLog)(`UserPromptSubmit: plugin version blocked — ${versionGate.reason}`);
+        writeDecision({
+            decision: 'deny',
+            reason: versionGate.reason,
+            errorType: versionGate.errorType,
+            status: 403,
+        });
+    }
     const userEmail = (0, identity_1.resolveUserEmail)();
-    const prompt = input.prompt ? (0, turnCache_1.truncatePrompt)(input.prompt) : '';
+    const prompt = input.prompt ? (0, context_1.truncatePrompt)(input.prompt) : '';
     // PromptSubmit fires every turn, unlike SessionStart (once per session) —
     // a good second place to keep this session's lastSeen fresh.
     const surface = (0, surface_1.resolveSessionSurface)({ host: input.host, agentId: cfg.agentId, sessionId: input.sessionId, pluginDataDir });
@@ -118,13 +131,13 @@ async function main() {
     // when the sub-agent was spawned (subAgentPrompts.ts).
     const isSubAgentPrompt = (0, subAgentPrompts_1.claimSubAgentPrompt)(input.sessionId, input.prompt, pluginDataDir);
     // Otherwise this plugin owns the turn boundary itself: mint a fresh TRACE
-    // id here and persist it (with the prompt text) so every PreToolUse call
-    // this turn produces — separate, stateless hook processes — reads the
+    // id here and persist it (the prompt text is not stored) so every PreToolUse
+    // call this turn produces — separate, stateless hook processes — reads the
     // same value back instead of each rolling its own. Spans are derived per
     // operation from that trace (see trace.ts).
     const turn = isSubAgentPrompt
         ? (0, turnCache_1.loadOrStartTurn)(input.sessionId, pluginDataDir)
-        : (0, turnCache_1.startTurn)(input.sessionId, input.prompt, pluginDataDir);
+        : (0, turnCache_1.startTurn)(input.sessionId, pluginDataDir);
     if (isSubAgentPrompt) {
         (0, debug_1.debugLog)('prompt is a sub-agent\'s instructions — same turn, sub-agent count and trace kept');
     }
@@ -144,25 +157,10 @@ async function main() {
     const resolvedModel = (0, kiroSession_1.resolveSessionModelWithSource)(input.sessionId, process.env, os.homedir(), pluginDataDir);
     const model = resolvedModel.model;
     (0, debug_1.debugLog)(`model=${(0, kiroSession_1.describeModel)(resolvedModel)}`);
-    const request = (0, invokeAgent_1.buildInvokeAgentRequest)(userEmail, cfg.agentId, prompt, (0, turnCache_1.directSessionFromTurn)(input.sessionId, turn), activeSessionCount, currentSession, model, (0, deviceId_1.resolveMachineId)(pluginDataDir));
+    const request = (0, invokeAgent_1.buildInvokeAgentRequest)(userEmail, cfg.agentId, prompt, (0, turnCache_1.directSessionFromTurn)(input.sessionId), activeSessionCount, currentSession, model, (0, deviceId_1.resolveMachineId)(pluginDataDir));
     (0, debug_1.debugLog)(`-> invokeAgent as ${userEmail} on Agent:${cfg.agentId} trace=${traceId}`);
     const result = await (0, pdpClient_1.evaluate)(cfg, request, traceparent, pluginDataDir, input.sessionId);
     (0, debug_1.debugLog)(`<- decision=${result.decision}${result.reason ? ` reason="${result.reason}"` : ''}`);
-    // Record this invokeAgent as the base of this turn's hop chain regardless
-    // of the decision, so a subsequent tool call (if the turn proceeds) has
-    // it to build on — mirrors how the spawn counter also advances on every
-    // attempt, not just approved ones.
-    // A sub-agent's prompt keeps the turn's existing chain (which already
-    // holds the user's invokeAgent and the spawns) instead of restarting it.
-    const invokeAgentHop = {
-        seq: 1,
-        subject: request.subject,
-        action: { name: 'invokeAgent' },
-        resource: request.resource,
-        time: new Date().toISOString(),
-    };
-    if (!isSubAgentPrompt)
-        (0, hopChain_1.startTurnHops)(input.sessionId, invokeAgentHop, pluginDataDir);
     writeDecision(result);
 }
 main().catch((err) => {

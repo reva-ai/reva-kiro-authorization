@@ -24,8 +24,8 @@ import { CanonicalHookEvent, NormalizedHookInput, PdpResult, RevaHost } from './
 // ---------------------------------------------------------------------------
 
 // kiro-cli's camelCase trigger names → the canonical (IDE-style) names the
-// rest of this plugin uses. `stop` has no canonical equivalent — this plugin
-// registers no hook for it.
+// rest of this plugin uses. `stop` fires when the assistant finishes a reply,
+// on both hosts, and is what ends a turn's trace (src/stop.ts).
 const CLI_EVENT_ALIASES: Record<string, CanonicalHookEvent> = {
   agentSpawn: 'SessionStart',
   userPromptSubmit: 'UserPromptSubmit',
@@ -65,7 +65,7 @@ export function detectHost(
 // The session id is the important part: kiro-cli does NOT put session_id in
 // the JSON at all (confirmed by capturing real kiro-cli payloads), it exposes
 // it as the KIRO_SESSION_ID environment variable instead. Every
-// piece of per-session state in this plugin (turn cache, hop chain, spawn
+// piece of per-session state in this plugin (turn cache, spawn
 // counter, active-session registry, trace id, `session.id` on the wire) is
 // keyed by it, so resolving it in exactly one place is what keeps both hosts
 // working off the same machinery.
@@ -88,6 +88,11 @@ export function normalizeInput(
     toolName: typeof raw.tool_name === 'string' ? raw.tool_name : undefined,
     toolInput: raw.tool_input && typeof raw.tool_input === 'object' ? raw.tool_input : {},
     toolResponse: raw.tool_response,
+    // Stop only. kiro-cli's `stop` payload carries the reply as
+    // `assistant_response` (see KiroCliHookInput in types.ts). The IDE's Stop
+    // payload has not been captured, so an absent field is a normal answer
+    // there and the caller then sends no reply text.
+    assistantResponse: typeof raw.assistant_response === 'string' ? raw.assistant_response : undefined,
     // Neither host exposes a sub-agent marker on the hook payload today
     // (IDE: confirmed absent from the payload builder; CLI: absent from every
     // captured payload). Kept so a future host version that adds one under
@@ -157,7 +162,8 @@ export function emitDecision(host: RevaHost, event: CanonicalHookEvent, result: 
 
   if (event === 'PostToolUse' || event === 'SessionStart' || event === 'Stop' || event === 'SessionEnd') {
     // Both hosts ignore output from these entirely — the tool already ran /
-    // the session already started/ended. Stop is local cleanup only (no PDP).
+    // the session already started/ended. Stop only reports the finished turn to
+    // Reva's summarize endpoint (stop.ts) and never decides anything.
     process.exit(0);
   }
 

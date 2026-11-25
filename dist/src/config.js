@@ -6,7 +6,10 @@ exports.loadConfig = loadConfig;
 const deviceId_1 = require("./deviceId");
 const kiroSettings_1 = require("./kiroSettings");
 const DEFAULT_TIMEOUT_MS = 25000;
-const PDP_PATH = '/pdp/v2/ai/evaluation';
+const PDP_PATH = '/pdp/ai/access/v1/ai/evaluation';
+const PLUGIN_VERSION_PATH = '/pdp/ai/access/v1/ai/plugin/version';
+// Closes one prompt trace after the turn's last reply (see stop.ts).
+const SUMMARIZE_PATH = '/pdp/ai/access/v1/ai/trace/summarize';
 const INGESTION_PATH = '/ingestion/v2';
 //  REVA_HOST overrides this.
 exports.DEFAULT_HOST = 'api.reva.ai';
@@ -90,6 +93,8 @@ function loadConfig(env = process.env, settingsPath) {
     // Paths are fixed in code.
     const host = effective.REVA_HOST?.trim() || exports.DEFAULT_HOST;
     const pdpUrl = urlFromHost(host, PDP_PATH);
+    const pluginVersionUrl = urlFromHost(host, PLUGIN_VERSION_PATH);
+    const summarizeUrl = urlFromHost(host, SUMMARIZE_PATH);
     const ingestionUrl = urlFromHost(host, INGESTION_PATH);
     // One token authenticates everything this plugin does — evaluation AND
     // ingestion. No separate ingestion credential, no fallback logic: there's
@@ -125,6 +130,7 @@ function loadConfig(env = process.env, settingsPath) {
     }
     return {
         pdpUrl,
+        pluginVersionUrl,
         authorization,
         agentId,
         // Optional. Unset (the default) sends no header at all, which is how
@@ -136,5 +142,6 @@ function loadConfig(env = process.env, settingsPath) {
         timeoutMs: Number(effective.REVA_PDP_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
         ingestionUrl,
         ingestionTimeoutMs: Number(effective.REVA_INGESTION_TIMEOUT_MS) || DEFAULT_INGESTION_TIMEOUT_MS,
+        summarizeUrl,
     };
 }

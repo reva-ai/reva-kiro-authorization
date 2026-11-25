@@ -14,7 +14,7 @@ function buildEntityDescriptor(type, id, attrs = {}, parents = []) {
         parents,
     };
 }
-// The bare {type, id} pointer used in active-turn hops.
+// The bare {type, id} pointer to an entity.
 function refOf(descriptor) {
     return { type: descriptor.uid.type, id: descriptor.uid.id };
 }

@@ -16,6 +16,7 @@ import { RevaConfig } from '../src/types';
 
 const cfg: RevaConfig = {
   pdpUrl: 'https://pdp.test/evaluate',
+  pluginVersionUrl: 'https://pdp.test/pdp/ai/access/v1/ai/plugin/version',
   authorization: 'eval-token',
   agentId: 'aa-bb-cc-dd-ee-ff',
   timeoutMs: 1000,
@@ -23,6 +24,7 @@ const cfg: RevaConfig = {
   policyStoreId: '',
   policyStoreHeader: 'policyStoreId',
   ingestionTimeoutMs: 1000,
+  summarizeUrl: 'https://pdp.test/pdp/ai/access/v1/ai/trace/summarize',
 };
 
 function tmpDir(): string {

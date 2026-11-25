@@ -50,8 +50,8 @@ const path = __importStar(require("node:path"));
 // safe against truly concurrent writers, but a session's own hooks are
 // expected to run sequentially, so this is safe in practice.
 // No fallback: only ever writes inside REVA_DATA_DIR — a plugin-owned env
-// var (see src/config.ts and hopChain.ts's comment on why this isn't a
-// Kiro-provided path). Without it, there is nothing honest to write to —
+// var (see src/config.ts and deviceId.ts's resolveDataDir for why this
+// isn't a Kiro-provided path). Without it, there is nothing honest to write to —
 // nextSpawnIndex still returns a value (every call is index 1, since
 // nothing persists), it just can't actually count across calls.
 function cacheDir(pluginDataDir) {

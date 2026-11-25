@@ -10,8 +10,10 @@ const TOKEN_ENV = { REVA_AUTH_TOKEN: 'auth-token', REVA_AGENT_ID: 'agent-a' };
 
 test('uses the default auth host when REVA_HOST is unset', () => {
   const cfg = loadConfig(TOKEN_ENV);
-  assert.equal(cfg.pdpUrl, `https://${DEFAULT_HOST}/pdp/v2/ai/evaluation`);
+  assert.equal(cfg.pdpUrl, `https://${DEFAULT_HOST}/pdp/ai/access/v1/ai/evaluation`);
+  assert.equal(cfg.pluginVersionUrl, `https://${DEFAULT_HOST}/pdp/ai/access/v1/ai/plugin/version`);
   assert.equal(cfg.ingestionUrl, `https://${DEFAULT_HOST}/ingestion/v2`);
+  assert.equal(cfg.summarizeUrl, `https://${DEFAULT_HOST}/pdp/ai/access/v1/ai/trace/summarize`);
 });
 
 test('REVA_HOST overrides the default host', () => {
@@ -19,8 +21,10 @@ test('REVA_HOST overrides the default host', () => {
     ...TOKEN_ENV,
     REVA_HOST: 'localhost:8787',
   });
-  assert.equal(cfg.pdpUrl, 'http://localhost:8787/pdp/v2/ai/evaluation');
+  assert.equal(cfg.pdpUrl, 'http://localhost:8787/pdp/ai/access/v1/ai/evaluation');
+  assert.equal(cfg.pluginVersionUrl, 'http://localhost:8787/pdp/ai/access/v1/ai/plugin/version');
   assert.equal(cfg.ingestionUrl, 'http://localhost:8787/ingestion/v2');
+  assert.equal(cfg.summarizeUrl, 'http://localhost:8787/pdp/ai/access/v1/ai/trace/summarize');
 });
 
 test('throws when REVA_AUTH_TOKEN is missing', () => {
@@ -38,8 +42,9 @@ test('REVA_HOST uses https for non-local hosts', () => {
     ...TOKEN_ENV,
     REVA_HOST: 'api.example.reva.ai',
   });
-  assert.equal(cfg.pdpUrl, 'https://api.example.reva.ai/pdp/v2/ai/evaluation');
+  assert.equal(cfg.pdpUrl, 'https://api.example.reva.ai/pdp/ai/access/v1/ai/evaluation');
   assert.equal(cfg.ingestionUrl, 'https://api.example.reva.ai/ingestion/v2');
+  assert.equal(cfg.summarizeUrl, 'https://api.example.reva.ai/pdp/ai/access/v1/ai/trace/summarize');
 });
 
 test('timeouts still have working defaults — not part of the required/error-if-missing set', () => {

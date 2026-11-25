@@ -2,7 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ORIGIN_APP = void 0;
 exports.evaluate = evaluate;
+exports.summarizeTrace = summarizeTrace;
 const debug_1 = require("./debug");
+const pluginVersion_1 = require("./pluginVersion");
+const pluginVersionGate_1 = require("./pluginVersionGate");
 const pdpCircuitBreaker_1 = require("./pdpCircuitBreaker");
 const PDP_UNAVAILABLE = 'PDP_UNAVAILABLE';
 const PDP_TIMEOUT = 'PDP_TIMEOUT';
@@ -87,7 +90,7 @@ async function postJson(cfg, url, body, traceparent, threadId) {
     }
 }
 async function postToPdp(cfg, request, traceparent, threadId) {
-    return postJson(cfg, cfg.pdpUrl, request, traceparent, threadId);
+    return postJson(cfg, cfg.pdpUrl, { ...request, pluginVersion: pluginVersion_1.PLUGIN_VERSION }, traceparent, threadId);
 }
 // Only 401 and 413 fail open — everything else operational (404, 424, 5xx)
 // fails CLOSED. `inactive: true` is only set on the 401/413 branches. 401
@@ -176,7 +179,20 @@ async function evaluate(cfg, request, traceparent, pluginDataDir, threadId) {
             raw: { circuitOpen: true, openedAt: breaker.openedAt },
         };
     }
+    // PromptSubmit / evaluate may latch an outdated plugin. Evaluate only reads it.
+    const versionGate = (0, pluginVersionGate_1.readPluginVersionGate)(threadId, pluginDataDir);
+    if (versionGate.status === 'blocked') {
+        (0, debug_1.debugLog)(`evaluate: PDP not called — plugin version blocked for this session (${versionGate.errorType})`);
+        return {
+            decision: 'deny',
+            reason: versionGate.reason,
+            errorType: versionGate.errorType,
+            status: 403,
+            raw: { pluginVersion: pluginVersion_1.PLUGIN_VERSION, gate: 'blocked' },
+        };
+    }
     try {
+        (0, debug_1.debugLog)(`evaluate: POST ${cfg.pdpUrl} pluginVersion=${pluginVersion_1.PLUGIN_VERSION}`);
         const res = await postToPdp(cfg, request, traceparent, threadId);
         (0, debug_1.debugLog)(`evaluate: PDP responded HTTP ${res.status} ${JSON.stringify(res.json ?? res.text)}`);
         if (res.status === 200) {
@@ -196,10 +212,26 @@ async function evaluate(cfg, request, traceparent, pluginDataDir, threadId) {
             };
         }
         if (res.status === 403) {
+            const errorType = errorTypeOf(res.json);
+            if ((0, pluginVersion_1.isPluginVersionErrorType)(errorType)) {
+                const versionErrorType = errorType;
+                const reason = versionErrorType === pluginVersion_1.ERROR_TYPE_PLUGIN_VERSION_INVALID
+                    ? (0, pluginVersion_1.invalidPluginVersionReason)()
+                    : (0, pluginVersion_1.unsupportedPluginVersionReason)(pluginVersion_1.PLUGIN_VERSION);
+                if (threadId)
+                    (0, pluginVersionGate_1.markPluginVersionBlocked)(threadId, pluginDataDir, reason, versionErrorType);
+                return {
+                    decision: 'deny',
+                    reason,
+                    errorType: versionErrorType,
+                    status: 403,
+                    raw: res.json ?? res.text,
+                };
+            }
             return {
                 decision: 'deny',
                 reason: "Blocked by your organization's security policy.",
-                errorType: errorTypeOf(res.json),
+                errorType,
                 status: 403,
                 raw: res.json ?? res.text,
             };
@@ -218,5 +250,45 @@ async function evaluate(cfg, request, traceparent, pluginDataDir, threadId) {
     catch (err) {
         (0, debug_1.debugLog)(`evaluate: PDP request failed — ${err?.message || String(err)}`);
         return handleTransportFailure(err);
+    }
+}
+// Best-effort: closes one prompt trace so Reva can write its summary from the
+// actions it already recorded. Never throws into the hook, and a failure here
+// must never change what Kiro does next.
+async function summarizeTrace(cfg, body) {
+    const controller = new AbortController();
+    // Fire-and-forget as far as the user is concerned, so keep it short.
+    const timer = setTimeout(() => controller.abort(), Math.min(cfg.timeoutMs, 5000));
+    try {
+        const payload = JSON.stringify(body);
+        (0, debug_1.debugLog)(`summarizeTrace: POST ${cfg.summarizeUrl} body=${payload}`);
+        // No X-Reva-Verification-Codes: CODE_USER_SCOPE needs principal.id in the
+        // request body, and summarize only sends trace_id/output/thread_id. The
+        // API token alone authenticates it.
+        const res = await fetch(cfg.summarizeUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Origin-App': exports.ORIGIN_APP,
+                ...(cfg.authorization ? { 'X-API-Token': cfg.authorization } : {}),
+                ...(cfg.policyStoreId ? { [cfg.policyStoreHeader]: cfg.policyStoreId } : {}),
+                ...(body.thread_id ? { 'X-Reva-Thread-Id': body.thread_id } : {}),
+            },
+            body: payload,
+            signal: controller.signal,
+        });
+        const text = await res.text().catch(() => '');
+        (0, debug_1.debugLog)(`summarizeTrace: HTTP ${res.status} ${text.slice(0, 200)}`);
+        if (res.status === 202)
+            return { ok: true, status: 202 };
+        return { ok: false, status: res.status, reason: text.slice(0, 300) };
+    }
+    catch (err) {
+        const reason = err?.message || String(err);
+        (0, debug_1.debugLog)(`summarizeTrace: failed — ${reason}`);
+        return { ok: false, reason };
+    }
+    finally {
+        clearTimeout(timer);
     }
 }

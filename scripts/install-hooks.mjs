@@ -66,12 +66,15 @@ const HOOKS = [
   // SessionEnd hooks 5s in total. kiro-cli 2.x has no such event, so it gets
   // none — its sessions leave the count through the 10-minute idle TTL.
   ['sessionEnd.js',      'SessionEnd',       null,               null, 5],
+  // `Stop` / `stop` — Kiro finished a reply, on both hosts. Reports the
+  // finished turn to Reva (trace summarize); never blocks and prints nothing.
+  // Earlier versions registered `Stop` for the session count instead, and
+  // that registration is replaced by this one on the next install: the IDE
+  // file below keeps its old name (reva-stop.json) and the kiro-cli entry is
+  // matched on this plugin's root path, so neither is left firing twice.
+  // 10s: the summarize call itself gives up after 5s.
+  ['stop.js',            'Stop',             'stop',             null, 10],
 ];
-
-// Registrations earlier versions wrote, removed on every install and
-// uninstall so an upgrade never leaves them firing.
-const LEGACY_IDE_FILES = ['reva-stop.json'];
-const LEGACY_CLI_TRIGGERS = ['stop'];
 
 function command(entry) {
   return `node "${path.join(DIST, entry).split(path.sep).join('/')}"`;
@@ -110,11 +113,8 @@ function installIde() {
     ['reva-pre-tool-use.json',   'reva-governance-pre-tool-use',   2],
     ['reva-post-tool-use.json',  'reva-governance-post-tool-use',  3],
     ['reva-session-end.json',    'reva-governance-session-end',    4],
+    ['reva-stop.json',           'reva-governance-stop',           5],
   ];
-  for (const file of LEGACY_IDE_FILES) {
-    const p = path.join(dir, file);
-    if (fs.existsSync(p)) { fs.unlinkSync(p); console.log(`removed ${p} (replaced)`); }
-  }
   if (uninstall) {
     for (const [file] of files) {
       const p = path.join(dir, file);
@@ -192,11 +192,6 @@ function installCli() {
   const rootPrefix = ROOT.split(path.sep).join('/');
   const isReva = (h) => typeof h?.command === 'string' && h.command.includes(rootPrefix);
   cfg.hooks = cfg.hooks || {};
-  for (const trigger of LEGACY_CLI_TRIGGERS) {
-    const kept = (cfg.hooks[trigger] || []).filter((h) => !isReva(h));
-    if (kept.length) cfg.hooks[trigger] = kept;
-    else delete cfg.hooks[trigger];
-  }
   for (const [entry, , cliTrigger, matcher, timeout] of HOOKS) {
     if (!cliTrigger) continue;
     const existing = (cfg.hooks[cliTrigger] || []).filter((h) => !isReva(h));

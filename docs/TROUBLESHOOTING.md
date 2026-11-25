@@ -63,7 +63,7 @@ everything being blocked, not as ungoverned work. Look at these instead, in orde
    run `kiro-cli settings chat.defaultAgent reva-governance` or
    `kiro-cli chat --agent reva-governance`.
 2. **Did the Kiro IDE load the hooks?** Hooks load at the start of a chat session, in a
-   **trusted** workspace. `npm run doctor` lists the five `~/.kiro/hooks/reva-*.json` files;
+   **trusted** workspace. `npm run doctor` lists the six `~/.kiro/hooks/reva-*.json` files;
    then restart the IDE.
 3. **Is `node` on your PATH?** Every hook runs it. `node -v` in the same shell or environment
    Kiro starts from.

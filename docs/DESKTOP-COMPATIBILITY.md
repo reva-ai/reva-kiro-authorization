@@ -38,12 +38,13 @@ works from the shape it produces.
 | | Kiro IDE | kiro-cli |
 |---|---|---|
 | Registration | `~/.kiro/hooks/*.json` (`{ "version": "v1", "hooks": [...] }`) | `hooks` field of `~/.kiro/agents/<agent>.json` |
-| Triggers | PascalCase: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SessionEnd` | camelCase: `agentSpawn`, `userPromptSubmit`, `preToolUse`, `postToolUse` (2.x has no session-end event) |
+| Triggers | PascalCase: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SessionEnd` | camelCase: `agentSpawn`, `userPromptSubmit`, `preToolUse`, `postToolUse`, `stop` (2.x has no session-end event) |
 | Matcher (tool hooks) | regular expression, `.*` | glob, `*` |
 | Session id | `session_id` in the payload | `session_id` in the payload, or the `KIRO_SESSION_ID` environment variable |
 | Shell running hook commands on Windows | `cmd.exe` | PowerShell |
 | Shell tools | `execute_pwsh`, `execute_bash`, `control_pwsh_process`, `control_bash_process` | `shell`, `execute_cmd`, `execute_bash` |
 | Sub-agent tools | `invoke_sub_agent` (one per call) | `subagent` (one per `stages` entry), `use_subagent` (one per `content.subagents` entry) |
+| Reply text on `Stop` | not captured yet — the end-of-turn call is sent without it | `assistant_response` in the payload |
 | `context.sessionEntryPoint` | `Kiro Desktop` | `cli` |
 
 kiro-cli V3 reads the Kiro IDE's `~/.kiro/hooks/*.json` files and sends the IDE's payload, so

@@ -16,7 +16,7 @@ export function buildEntityDescriptor(
   };
 }
 
-// The bare {type, id} pointer used in active-turn hops.
+// The bare {type, id} pointer to an entity.
 export function refOf(descriptor: CedarEntityDescriptor): CedarEntityRef {
   return { type: descriptor.uid.type, id: descriptor.uid.id };
 }

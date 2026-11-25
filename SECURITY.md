@@ -12,7 +12,7 @@ would like credit in the release notes, say so and we will include it.
 ## What this software is, in security terms
 
 This is an **authorization enforcement point that runs on a developer's workstation**. The
-Kiro IDE and `kiro-cli` invoke it through five hooks, and on `PreToolUse` / `preToolUse` its
+Kiro IDE and `kiro-cli` invoke it through six hooks, and on `PreToolUse` / `preToolUse` its
 answer decides whether the tool call runs at all.
 
 It is not a passive audit log. It sees the developer's prompts and the arguments of every tool
@@ -24,17 +24,19 @@ people running it are entitled to know exactly what leaves their machine.
 
 ## What it sends, and what it keeps
 
-Every evaluating hook sends a request to `https://<REVA_HOST>/pdp/v2/ai/evaluation`. The
-table below is the complete set of content that leaves the machine.
+Every evaluating hook sends a request to `https://<REVA_HOST>/pdp/ai/access/v1/ai/evaluation`. The
+`Stop` hook sends one further request per finished reply, to
+`https://<REVA_HOST>/pdp/ai/access/v1/ai/trace/summarize`. The table below is the complete set of content
+that leaves the machine.
 
 | Hook | Content transmitted |
 |---|---|
-| `UserPromptSubmit` | The **full text of the prompt** the developer submitted, truncated to 2000 characters. |
+| `UserPromptSubmit` | The **full text of the prompt** the developer submitted, truncated to 10000 characters. |
 | `PreToolUse` (shell tools) | The **full shell command**, verbatim. |
 | `PreToolUse` (glob / grep tools) | The search pattern. |
 | `PreToolUse` (all other tools) | `JSON.stringify(tool_input)` — the whole tool input object. For a file write this includes **the file content being written**; for an edit, the **text being replaced and its replacement**; for a sub-agent, **the instructions it is given**. |
 | `PostToolUse` | The **serialized tool response**, truncated to 10000 characters — i.e. file contents that were read, and command output — together with the same command, pattern or tool input `PreToolUse` sent. |
-| every evaluation | The current turn's user prompt, again, as one `conversation` message. |
+| `Stop` / `stop` (a reply finished) | The assistant's **final reply** for the turn, truncated to 16 KiB, when the host provides it: kiro-cli's `stop` payload carries it as `assistant_response`; for the Kiro IDE's `Stop` the plugin sends the trace and session ids alone if the payload has no reply text. This call is not an evaluation and decides nothing. |
 
 Alongside the content, each request carries identity and resource metadata:
 
@@ -43,9 +45,17 @@ Alongside the content, each request carries identity and resource metadata:
 | principal | The developer's **email address** | `kiro-cli whoami`; falls back to the **OS username** if no account is signed in |
 | subject / agent id | The Kiro account's **user UUID** | `telemetryUserId` in kiro-cli's local database (`data.sqlite3`), or `REVA_AGENT_ID` when set. Only that one value is read — the database's token tables are never opened. |
 | resource id | The file, directory or repository acted on | See "Paths" below |
-| session | Session id, turn number, a count of concurrent sessions, and the entry point (`cli` or `Kiro Desktop`) | local |
+| session | Session id, a count of concurrent sessions, and the entry point (`cli` or `Kiro Desktop`) | local |
 | context | Operating system (`Windows` / `macOS` / `Linux`), this machine's hardware id, the model in use | local |
 | correlation ids | A per-chat **thread id** — the Kiro session id, sent as `X-Reva-Thread-Id` — plus a per-prompt trace id and a per-operation span id in the W3C `traceparent` header | local |
+
+**What it does not send.** No history is sent with an evaluation: not the earlier prompts of
+the session, not the chain of earlier actions in the turn (`context.hops`), and no turn number.
+Reva records each evaluation as it arrives and builds that history itself, so the plugin keeps
+no local copy of it either. Each request carries only the current action.
+
+If the summarize call fails or Reva is unreachable, nothing changes for the developer: the
+hook is best-effort, gives up after 5 seconds, and always exits 0 without output.
 
 At **session start** the plugin also registers entities with Reva's ingestion API
 (`/ingestion/v2`): the developer's email, this machine's **hardware id** (`IOPlatformUUID` on
@@ -75,10 +85,13 @@ the absolute path, which on most systems contains the local username.
 
 ### What stays on the machine
 
-Turn caches, spawn counters, the active-session list, the cached account lookup, the cached
-entity-type ids and, when `REVA_DEBUG=1`, `debug.log` are written **only** inside the plugin's
-data directory — `REVA_DATA_DIR`, by default `~/.kiro/reva-governance`. Nothing is written to
-your repositories.
+Turn caches (a trace id, a turn number and two timestamps per session), spawn counters, the
+active-session list, the cached account lookup, the cached entity-type ids and, when
+`REVA_DEBUG=1`, `debug.log` are written **only** inside the plugin's data directory —
+`REVA_DATA_DIR`, by default `~/.kiro/reva-governance`. Nothing is written to your repositories.
+
+**The prompt is not stored.** The text of a prompt goes to Reva and no file on the machine keeps
+a copy: the turn cache holds no prompt text, and no earlier prompts or actions are kept either.
 
 `npm run install-hooks` writes the hook registrations: `~/.kiro/hooks/reva-*.json` for the
 Kiro IDE and the `hooks` block of `~/.kiro/agents/reva-governance.json` for kiro-cli.

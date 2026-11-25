@@ -7,7 +7,6 @@ import { resolveMachineId } from './deviceId';
 import { applyKiroCliEnv } from './kiroSettings';
 import { buildEntityDescriptor, directSpecOf } from './entity';
 import { evaluateAll } from './evaluateAll';
-import { loadAgentHops, resolveSubAgentLineage } from './hopChain';
 import { resolveAgentContext, resolveUserEmail } from './identity';
 import { mapToolCall } from './mapping';
 import { describeModel, resolveSessionModelWithSource } from './kiroSession';
@@ -15,7 +14,7 @@ import { readStdin } from './stdin';
 import { deriveSpanId, toolSpanKey, traceparentHeader } from './trace';
 import { emitDecision, hostLabel, normalizeInput } from './host';
 import { CedarEntityDescriptor, CedarRequest, PdpResult, RevaHost } from './types';
-import { conversationFromTurn, directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId } from './turnCache';
+import { directSessionFromTurn, loadOrStartTurn, resolveTurnTraceId } from './turnCache';
 
 // PostToolUse / postToolUse — audit only, on BOTH hosts.
 //
@@ -77,13 +76,9 @@ async function main(): Promise<void> {
       })
     : buildEntityDescriptor('Agent', agentCtx.agentId);
 
-  const hops = agentCtx.isSubAgent
-    ? resolveSubAgentLineage(input.sessionId, agentCtx.subAgentId!, pluginDataDir)
-    : loadAgentHops(input.sessionId, pluginDataDir);
-
-  // Same current-hop prompt PreToolUse puts in transmission.userQuery.
+  // Same current-call prompt PreToolUse puts in transmission.userQuery.
   const serializedInput = JSON.stringify(input.toolInput);
-  const currentHopContent =
+  const currentCallContent =
     mapping.command?.trim() || mapping.pattern?.trim() ||
     (serializedInput !== '{}' ? serializedInput : toolName);
 
@@ -94,8 +89,8 @@ async function main(): Promise<void> {
   // userQuery matches PreToolUse; the tool result is transmission.response,
   // not closed Cedar context, so the evaluate payload carries it without a
   // schema change.
-  const transmission = buildToolResponseTransmission(input.toolResponse, currentHopContent);
-  const session = directSessionFromTurn(input.sessionId, turn);
+  const transmission = buildToolResponseTransmission(input.toolResponse, currentCallContent);
+  const session = directSessionFromTurn(input.sessionId);
 
   // Same resources PreToolUse evaluated, one request each.
   const requests = toolMapping.mappings.map((each) => {
@@ -107,8 +102,6 @@ async function main(): Promise<void> {
         buildEntityDescriptor(each.resourceType, each.resourceId, each.resourceProperties, each.resourceParents),
       ),
       context: buildActionContext(each, {
-        hops,
-        conversationMessages: conversationFromTurn(turn),
         activeSessionCount,
         currentSession,
         model,
@@ -121,7 +114,7 @@ async function main(): Promise<void> {
   });
 
   debugLog(
-    `-> post ${toolName}: ${requests.map((r) => `${r.mapping.actionName}:${r.mapping.resourceId}`).join(', ')} (hops=${hops.length})`,
+    `-> post ${toolName}: ${requests.map((r) => `${r.mapping.actionName}:${r.mapping.resourceId}`).join(', ')}`,
   );
   const aggregate = await evaluateAll(cfg, requests, pluginDataDir, input.sessionId);
   const result = aggregate.result;

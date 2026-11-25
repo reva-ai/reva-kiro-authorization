@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.truncatePrompt = truncatePrompt;
 exports.osAttribute = osAttribute;
 exports.buildActionContext = buildActionContext;
 exports.buildInvokeAgentContext = buildInvokeAgentContext;
@@ -41,6 +42,13 @@ exports.serializeToolResponse = serializeToolResponse;
 exports.buildToolResponseTransmission = buildToolResponseTransmission;
 const nodeOs = __importStar(require("node:os"));
 const ingestionClient_1 = require("./ingestionClient");
+// Sent as the invokeAgent userQuery. A PDP 413 fails open for that request,
+// so raise this only after confirming the PDP accepts the resulting request
+// size. The prompt is sent to Reva and not stored on this machine.
+const MAX_PROMPT_LENGTH = 10000;
+function truncatePrompt(prompt) {
+    return prompt.length > MAX_PROMPT_LENGTH ? `${prompt.slice(0, MAX_PROMPT_LENGTH)}…` : prompt;
+}
 // Exported with an injectable platform so tests can cover every value
 // without mocking node:os.
 function osAttribute(platform = nodeOs.platform()) {
@@ -49,15 +57,6 @@ function osAttribute(platform = nodeOs.platform()) {
     if (platform === 'darwin')
         return 'macOS';
     return 'Linux';
-}
-function activeTurnEvidence(extras) {
-    const messages = extras.conversationMessages || [];
-    return {
-        // Canonical direct-AI placement. An empty array is meaningful for the
-        // first hop of a turn and keeps every request on one stable shape.
-        hops: extras.hops || [],
-        ...(messages.length > 0 ? { conversation: { messages } } : {}),
-    };
 }
 function activeSessionFields(extras) {
     return {
@@ -73,29 +72,27 @@ function activeSessionFields(extras) {
 }
 function buildActionContext(mapping, extras = {}) {
     const timestamp = Date.now();
-    const evidence = activeTurnEvidence(extras);
     const sessions = activeSessionFields(extras);
     switch (mapping.actionName) {
         case 'invokeTool':
-            return { timestamp, ...evidence, ...sessions };
+            return { timestamp, ...sessions };
         case 'spawn':
-            return { timestamp, subagentIndex: extras.subagentIndex ?? 1, ...evidence, ...sessions };
+            return { timestamp, subagentIndex: extras.subagentIndex ?? 1, ...sessions };
         case 'executeBash':
-            return { timestamp, command: mapping.command ?? '', ...evidence, ...sessions };
+            return { timestamp, command: mapping.command ?? '', ...sessions };
         case 'read':
         case 'write':
         case 'edit':
         case 'glob':
         case 'grep':
-            return { timestamp, ...evidence, ...sessions };
+            return { timestamp, ...sessions };
         default:
-            return { timestamp, ...evidence, ...sessions };
+            return { timestamp, ...sessions };
     }
 }
 function buildInvokeAgentContext(activeSessionCount = 0, currentSession, model, machineId) {
     return {
         timestamp: Date.now(),
-        hops: [],
         ...activeSessionFields({ activeSessionCount, currentSession, model, machineId }),
     };
 }
@@ -118,7 +115,7 @@ function serializeToolResponse(toolResponse) {
     const raw = typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse);
     return raw.length > MAX_TOOL_RESPONSE_LENGTH ? `${raw.slice(0, MAX_TOOL_RESPONSE_LENGTH)}…` : raw;
 }
-// PostToolUse: userQuery is the SAME current-hop prompt PreToolUse sent, so
+// PostToolUse: userQuery is the SAME current-call prompt PreToolUse sent, so
 // the pre/post pair of one call shows one prompt, and the tool's result rides
 // separately in transmission.response. context no longer carries a `prompt`
 // field at all — that's now PDP-managed, not client-set.
